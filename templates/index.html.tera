@@ -1,0 +1,162 @@
+<html>
+    <head>
+    <title>{{ title }}</title>
+    <style>
+        body {font-family:monospace;}
+        th,td{padding:0.3em 1em;text-align:right}
+        th{font-weight:bold}
+    </style>
+    <script>
+        window.onload = function() {
+            for (let element of document.querySelectorAll(".toggle-table")) {
+                let name = element.parentElement.getAttribute("data-js-name");
+                let in_body = [];
+                let next = element.parentElement.parentElement.nextElementSibling;
+                while (next && next.getAttribute("data-field-start") !== "true") {
+                    in_body.push(next);
+                    next = next.nextElementSibling;
+                }
+                for (let detail of in_body) {
+                    detail.style.display = "none";
+                }
+                element.addEventListener("toggle", evt => {
+                    for (let detail of in_body) {
+                        if (element.open) {
+                            detail.style.display = "";
+                        } else {
+                            detail.style.display = "none";
+                        }
+                    }
+                });
+            }
+        }
+    </script>
+</head>
+<body>
+<form>
+    Revision range:
+    <input name="r0" value="{{ revision_low }}" />
+    <input name="r1" value="{{ revision_high }}" />
+    <input type="submit" value="Ok" />
+</form>
+<h1>CSB Benchmarks</h1>
+<table>
+    <thead>
+        <tr>
+            <td />
+            <th>r{{ revision_low }}</th>
+            <th>r{{ revision_high }}</th>
+        </tr>
+    </thead>
+    <tbody>
+{% for test in csb_tests %}
+        <tr data-field-start="true">
+            <th data-js-name="{{ test.name }}">
+                <details class="toggle-table">
+                    <summary>{{ test.name }}</summary>
+                </details>
+            </th>
+            <td>time: <span style="color:
+            {% if test.time_change < 0.99 %}
+                #0a0
+            {% elif test.time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.time_change }}%</span></td>
+            <td>mem: <span style="color:
+            {% if test.memory_change < 0.99 %}
+                #0a0
+            {% elif test.memory_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.memory_change }}%</span></td>
+        </tr>
+        <tr style="display:none">
+            <td>time:</td>
+            <td>{{ test.time0 }}s</td>
+            <td>{{ test.time1 }}s</td>
+        </tr>
+        <tr style="display:none">
+            <td>mem:</td>
+            <td>{{ test.memory0 }} MB</td>
+            <td>{{ test.memory1 }} MB</td>
+        </tr>
+        <tr style="display:none">
+            <td colspan="3">&nbsp;</td>
+        </tr>
+{% endfor %}
+    </tbody>
+</table>
+
+<h1>Ini Benchmarks</h1>
+<table>
+    <thead>
+        <tr>
+            <td />
+            <th>r{{ revision_low }}</th>
+            <th>r{{ revision_high }}</th>
+            <th />
+        </tr>
+    </thead>
+    <tbody>
+{% for test in ini_tests %}
+        <tr data-field-start="true">
+            <th data-js-name="{{ test.name }}">
+                <details class="toggle-table">
+                    <summary>{{ test.name }}</summary>
+                </details>
+            </th>
+            <td>cut: <span style="color:
+            {% if test.cut_time_change < 0.99 %}
+                #0a0
+            {% elif test.cut_time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.cut_time_change }}%</span></td>
+            <td>draw: <span style="color:
+            {% if test.draw_time_change < 0.99 %}
+                #0a0
+            {% elif test.draw_time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.draw_time_change }}%</span></td>
+            <td>mem: <span style="color:
+            {% if test.memory_change < 0.99 %}
+                #0a0
+            {% elif test.memory_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.memory_change }}%</span></td>
+        </tr>
+        <tr style="display:none">
+            <td>cut:</td>
+            <td>{{ test.cut_time0 }}s</td>
+            <td>{{ test.cut_time1 }}s</td>
+        </tr>
+        <tr style="display:none">
+            <td>draw:</td>
+            <td>{{ test.draw_time0 }}s</td>
+            <td>{{ test.draw_time1 }}s</td>
+        </tr>
+        <tr style="display:none">
+            <td>mem:</td>
+            <td>{{ test.memory0 }} MB</td>
+            <td>{{ test.memory1 }} MB</td>
+        </tr>
+        <tr style="display:none">
+            <td colspan="4">&nbsp;</td>
+        </tr>
+{% endfor %}
+    </tbody>
+</table>
+</html>

@@ -1,87 +1,105 @@
-use rusqlite::Connection;
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate tera;
+
+use rocket::http::RawStr;
+use rocket_contrib::templates::Template;
+//use rusqlite::Connection;
+use serde_derive::Serialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::iter::FromIterator;
+use tera::Context;
 
-fn main() -> std::io::Result<()> {
-    let first_revision = 800_000;
-    let second_revision = 896_000;
+#[derive(Serialize)]
+struct CsbTest {
+    name: String,
+    time0: f64,
+    time1: f64,
+    time_change: f64,
+    memory0: f64,
+    memory1: f64,
+    memory_change: f64,
+}
 
-    let conn = Connection::open("cutsim-testreport.db").unwrap();
+#[derive(Serialize)]
+struct IniTest {
+    name: String,
+    cut_time0: f64,
+    cut_time1: f64,
+    cut_time_change: f64,
+    draw_time0: f64,
+    draw_time1: f64,
+    draw_time_change: f64,
+    memory0: f64,
+    memory1: f64,
+    memory_change: f64,
+}
+
+#[get("/?<r0>&<r1>")]
+fn index(r0: Option<&RawStr>, r1: Option<&RawStr>) -> Template {
+    let first_revision = r0.and_then(parse_revision).unwrap_or(800_000);
+    let second_revision = r1.and_then(parse_revision).unwrap_or(896_000);
+
+    /*let conn = Connection::open("cutsim-testreport.db").unwrap();
 
     let csb_first = get_csb_runs(&conn, first_revision).unwrap();
     let csb_second = get_csb_runs(&conn, second_revision).unwrap();
     let ini_first = get_ini_runs(&conn, first_revision).unwrap();
-    let ini_second = get_ini_runs(&conn, second_revision).unwrap();
+    let ini_second = get_ini_runs(&conn, second_revision).unwrap();*/
 
-    let mut out_file = File::create("report.html")?;
-    let style = r#"
-    body {font-family:monospace;}
-    th,td{padding:0.3em 1em;text-align:right}
-    th{font-weight:bold}
-    "#;
-    let script = r#"
-    window.onload = function() {
-        for (let element of document.querySelectorAll(".toggle-table")) {
-            let name = element.parentElement.getAttribute("data-js-name");
-            let in_body = [];
-            let next = element.parentElement.parentElement.nextElementSibling;
-            while (next && next.getAttribute("data-field-start") !== "true") {
-                in_body.push(next);
-                next = next.nextElementSibling;
-            }
-            for (let detail of in_body) {
-                detail.style.display = "none";
-            }
-            element.addEventListener("toggle", evt => {
-                for (let detail of in_body) {
-                    if (element.open) {
-                        detail.style.display = "";
-                    } else {
-                        detail.style.display = "none";
-                    }
-                }
-            });
-        }
-    }
-    "#;
-    write!(
-        out_file,
-        "<html><head><title>{}</title><style>{}</style><script>{}</script></head><body>",
-        "Benchmarks", style, script
-    )?;
+    /*let mut csb_first = HashMap::new();
+    csb_first.insert("test1".to_string(), vec![(1.5, 1240.0)]);
+    let mut csb_second = HashMap::new();
+    csb_second.insert("test1".to_string(), vec![(1.3, 220.0)]);*/
 
-    let rows: Vec<(&str, &str, Box<dyn Fn(&(f64, f64)) -> f64>)> = vec![
-        ("time", "s", Box::new(|r| r.0)),
-        ("mem", " MB", Box::new(|r| r.1)),
-    ];
-    print_table(
-        &mut out_file,
-        "Csb Time",
-        first_revision,
-        second_revision,
-        csb_first,
-        csb_second,
-        rows,
-    )?;
+    let csb_tests = vec![CsbTest {
+        name: "test1".to_string(),
+        time0: 1.5,
+        time1: 1.3,
+        time_change: -1.4,
+        memory0: 240.0,
+        memory1: 1220.0,
+        memory_change: 90.0,
+    }];
 
-    let rows: Vec<(&str, &str, Box<dyn Fn(&(f64, f64, f64)) -> f64>)> = vec![
-        ("cut", "s", Box::new(|r| r.0)),
-        ("draw", "s", Box::new(|r| r.1)),
-        ("mem", " MB", Box::new(|r| r.2)),
-    ];
-    print_table(
-        &mut out_file,
-        "Ini Time",
-        first_revision,
-        second_revision,
-        ini_first,
-        ini_second,
-        rows,
-    )?;
-    out_file.write_all(b"</body></html>")?;
-    Ok(())
+    let ini_tests = vec![IniTest {
+        name: "test_ini".to_string(),
+        cut_time0: 1.5,
+        cut_time1: 1.3,
+        cut_time_change: -1.4,
+        draw_time0: 11.5,
+        draw_time1: 15.3,
+        draw_time_change: 10.4,
+        memory0: 240.0,
+        memory1: 1220.0,
+        memory_change: 90.0,
+    }];
+
+    let mut context = Context::new();
+    context.insert("title", "CutSim benchmarks");
+    context.insert("revision_low", &first_revision);
+    context.insert("revision_high", &second_revision);
+    context.insert("csb_tests", &csb_tests);
+    context.insert("ini_tests", &ini_tests);
+    Template::render("index", &context)
+}
+
+fn parse_revision(revision: &RawStr) -> Option<u32> {
+    revision
+        .percent_decode()
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+}
+
+fn main() {
+    rocket::ignite()
+        .mount("/", routes![index])
+        .attach(Template::fairing())
+        .launch();
 }
 
 #[derive(Debug)]
@@ -98,7 +116,7 @@ struct IniRow {
     draw_time: f64,
     memory: f64,
 }
-
+/*
 fn get_csb_runs(
     conn: &Connection,
     revision: u32,
@@ -153,87 +171,4 @@ fn get_ini_runs(
     }
     return Ok(results);
 }
-
-fn print_table<S>(
-    out_file: &mut File,
-    title: &str,
-    first_revision: u32,
-    second_revision: u32,
-    csb_first: HashMap<String, Vec<S>>,
-    csb_second: HashMap<String, Vec<S>>,
-    row_printers: Vec<(&str, &str, Box<dyn Fn(&S) -> f64>)>,
-) -> std::io::Result<()> {
-    write!(
-        out_file,
-        "<h1>{}</h1><table><thead><tr><td /><th>r{}</th><th>r{}</th><th /></tr></thead><tbody>",
-        title, first_revision, second_revision
-    )?;
-
-    let mut test_names = Vec::from_iter(csb_second.keys());
-    test_names.sort_unstable();
-
-    for test_name in test_names {
-        let fst = csb_first.get(test_name);
-        let snd = csb_second.get(test_name);
-        if let Some(fst) = fst {
-            if let Some(snd) = snd {
-                write!(
-                    out_file,
-                    "<tr data-field-start=\"true\"><th data-js-name=\"{}\"><details class=\"toggle-table\"><summary>{}</summary></details></th>",
-                    test_name, test_name
-                )?;
-                let data: Vec<_> = row_printers
-                    .iter()
-                    .map(|p| (p.0, p.1, averages_and_change(fst, snd, &p.2)))
-                    .collect();
-                for d in &data {
-                    write!(
-                        out_file,
-                        "<td>{}: {}</td>",
-                        d.0,
-                        to_relative_change_html((d.2).2)
-                    )?;
-                }
-                for d in data {
-                    out_file.write_all(b"<tr>")?;
-                    write!(
-                        out_file,
-                        "<tr><td>{}</td><td>{:.1}{}</td><td>{:.1}{}</td></tr>",
-                        d.0,
-                        (d.2).0,
-                        d.1,
-                        (d.2).1,
-                        d.1
-                    )?;
-                }
-                out_file.write_all(b"<tr><td colspan=\"3\">&nbsp;</td></tr>")?;
-            }
-        }
-    }
-    out_file.write_all(b"</table>")?;
-    Ok(())
-}
-
-fn averages_and_change<C>(v1: &Vec<C>, v2: &Vec<C>, f: &dyn Fn(&C) -> f64) -> (f64, f64, f64) {
-    let fst = average(v1, f);
-    let snd = average(v2, f);
-    (fst, snd, snd / fst)
-}
-
-fn average<C>(v: &Vec<C>, f: &dyn Fn(&C) -> f64) -> f64 {
-    v.iter().map(|a| f(a)).sum::<f64>() / (v.len() as f64)
-}
-
-fn to_relative_change_html(change: f64) -> String {
-    let color = match () {
-        _ if change < 0.95 => "#090",
-        _ if change > 1.05 => "#f00",
-        _ => "#000",
-    };
-    let change_percent = match () {
-        _ if change < 1.0 => format!("-{:.1}%", 100.0 * (1.0 - change)),
-        _ if change > 1.0 => format!("+{:.1}%", 100.0 * (change - 1.0)),
-        _ => "0%".to_owned(),
-    };
-    format!("<span style=\"color:{}\">{}</span>", color, change_percent)
-}
+*/
