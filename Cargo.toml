@@ -8,8 +8,8 @@ edition = "2018"
 
 [dependencies]
 rusqlite = { version = ">= 0.20.0", features=["bundled"] }
-rocket = "*"
-rocket_contrib = { version = "*", features=["tera_templates"] }
 tera = "*"
 serde = "*"
 serde_derive = "*"
+actix-web = "*"
+env_logger = "*"

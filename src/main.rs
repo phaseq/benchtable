@@ -1,18 +1,8 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-#[macro_use]
-extern crate rocket;
-#[macro_use]
-extern crate tera;
-
-use rocket::http::RawStr;
-use rocket_contrib::templates::Template;
+use actix_web::{error, middleware, web, App, HttpResponse, HttpServer};
 //use rusqlite::Connection;
 use serde_derive::Serialize;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::prelude::*;
-use std::iter::FromIterator;
-use tera::Context;
+use tera::{compile_templates, Context};
 
 #[derive(Serialize)]
 struct CsbTest {
@@ -39,10 +29,18 @@ struct IniTest {
     memory_change: f64,
 }
 
-#[get("/?<r0>&<r1>")]
-fn index(r0: Option<&RawStr>, r1: Option<&RawStr>) -> Template {
-    let first_revision = r0.and_then(parse_revision).unwrap_or(800_000);
-    let second_revision = r1.and_then(parse_revision).unwrap_or(896_000);
+fn index(
+    tmpl: web::Data<tera::Tera>,
+    query: web::Query<HashMap<String, String>>,
+) -> actix_web::Result<HttpResponse> {
+    let first_revision = query
+        .get("r0")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(800_000);
+    let second_revision = query
+        .get("r1")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(896_000);
 
     /*let conn = Connection::open("cutsim-testreport.db").unwrap();
 
@@ -85,21 +83,26 @@ fn index(r0: Option<&RawStr>, r1: Option<&RawStr>) -> Template {
     context.insert("revision_high", &second_revision);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
-    Template::render("index", &context)
+    let s = tmpl
+        .render("index.html.tera", &context)
+        .map_err(|e| error::ErrorInternalServerError(format!("{:?}", e)))?;
+    Ok(HttpResponse::Ok().content_type("text/html").body(s))
 }
 
-fn parse_revision(revision: &RawStr) -> Option<u32> {
-    revision
-        .percent_decode()
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-}
+fn main() -> std::io::Result<()> {
+    //std::env::set_var("RUST_LOG", "actix_web=info");
+    env_logger::init();
 
-fn main() {
-    rocket::ignite()
-        .mount("/", routes![index])
-        .attach(Template::fairing())
-        .launch();
+    HttpServer::new(|| {
+        let tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+
+        App::new()
+            .data(tera)
+            .wrap(middleware::Logger::default()) // enable logger
+            .service(web::resource("/").route(web::get().to(index)))
+    })
+    .bind("127.0.0.1:8000")?
+    .run()
 }
 
 #[derive(Debug)]
