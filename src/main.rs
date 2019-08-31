@@ -30,7 +30,7 @@ struct IniTest {
 }
 
 fn index(
-    tmpl: web::Data<tera::Tera>,
+    _tmpl: web::Data<tera::Tera>,
     query: web::Query<HashMap<String, String>>,
 ) -> actix_web::Result<HttpResponse> {
     let first_revision = query
@@ -83,10 +83,59 @@ fn index(
     context.insert("revision_high", &second_revision);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
+    let tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
     let s = tmpl
-        .render("index.html.tera", &context)
+        .render("index.html", &context)
         .map_err(|e| error::ErrorInternalServerError(format!("{:?}", e)))?;
     Ok(HttpResponse::Ok().content_type("text/html").body(s))
+}
+
+fn graph_json(_query: web::Query<HashMap<String, String>>) -> actix_web::Result<HttpResponse> {
+    Ok(HttpResponse::Ok().content_type("text/json").body(
+        r#"{
+    "labels": [
+        700000, 700500, 701000, 701500, 702000, 702500, 703000, 703500, 704000, 704500, 705000
+    ],
+    "datasets": [{
+        "label": "Cut Time",
+        "backgroundColor": "rgb(255, 159, 64)",
+        "borderColor": "rgb(255, 159, 64)",
+        "fill": false,
+        "data": [
+            { "x": 700000, "y": 1.0, "v": 20 },
+            { "x": 700500, "y": 1.1, "v": 22 },
+            { "x": 701000, "y": 1.1, "v": 22 },
+            { "x": 701500, "y": 1.3, "v": 26 },
+            { "x": 702000, "y": 1.3, "v": 26 },
+            { "x": 702500, "y": 1.3, "v": 26 },
+            { "x": 703000, "y": 1.25, "v": 25 },
+            { "x": 703500, "y": 1.25, "v": 25 },
+            { "x": 704000, "y": 0.9, "v": 18 },
+            { "x": 704500, "y": 0.903, "v": 18 },
+            { "x": 705000, "y": 0.901, "v": 18 }
+        ]
+    },
+    {
+        "label": "Memory",
+        "backgroundColor": "rgb(54, 162, 235)",
+        "borderColor": "rgb(54, 162, 235)",
+        "fill": false,
+        "data": [
+            { "x": 700000, "y": 1.0, "v": 20 },
+            { "x": 700500, "y": 1.3, "v": 22 },
+            { "x": 701000, "y": 1.5, "v": 22 },
+            { "x": 701500, "y": 1.1, "v": 26 },
+            { "x": 702000, "y": 1.3, "v": 26 },
+            { "x": 702500, "y": 1.6, "v": 26 },
+            { "x": 703000, "y": 1.35, "v": 25 },
+            { "x": 703500, "y": 1.15, "v": 25 },
+            { "x": 704000, "y": 0.96, "v": 18 },
+            { "x": 704500, "y": 0.63, "v": 18 },
+            { "x": 705000, "y": 0.51, "v": 18 }
+        ]
+    }]
+}"#,
+    ))
 }
 
 fn main() -> std::io::Result<()> {
@@ -100,6 +149,8 @@ fn main() -> std::io::Result<()> {
             .data(tera)
             .wrap(middleware::Logger::default()) // enable logger
             .service(web::resource("/").route(web::get().to(index)))
+            .service(web::resource("/graph.json").route(web::get().to(graph_json)))
+            .service(actix_files::Files::new("/static", "static").show_files_listing())
     })
     .bind("127.0.0.1:8000")?
     .run()

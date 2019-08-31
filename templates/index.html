@@ -1,0 +1,337 @@
+<html>
+
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: monospace;
+        }
+
+        #benchtable th,
+        #benchtable td {
+            padding: 0.3em 1em;
+            text-align: right
+        }
+
+        #benchtable th {
+            font-weight: bold
+        }
+
+        canvas {
+            -moz-user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+        }
+
+        #chartjs-tooltip {
+            opacity: 1;
+            position: absolute;
+            background: rgba(0, 0, 0, .7);
+            color: white;
+            border-radius: 3px;
+            -webkit-transition: all .1s ease;
+            transition: all .1s ease;
+            pointer-events: none;
+            -webkit-transform: translate(-50%, 0);
+            transform: translate(-50%, 0);
+        }
+
+        #chartjs-tooltip table {
+            color: white;
+        }
+
+        .chartjs-tooltip-key {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            margin-right: 10px;
+        }
+    </style>
+    <script src="static/Chart.min.js"></script>
+    <script>
+        function addGraph(node, data) {
+            var ctx = node.getContext('2d');
+            var customTooltip = function (tooltip) {
+                // Tooltip Element
+                var tooltipEl = document.getElementById('chartjs-tooltip');
+
+                if (!tooltipEl) {
+                    tooltipEl = document.createElement('div');
+                    tooltipEl.id = 'chartjs-tooltip';
+                    tooltipEl.innerHTML = '<table></table>';
+                    this._chart.canvas.parentNode.appendChild(tooltipEl);
+                }
+
+                // Hide if no tooltip
+                if (tooltip.opacity === 0) {
+                    tooltipEl.style.opacity = 0;
+                    return;
+                }
+
+                // Set caret Position
+                tooltipEl.classList.remove('above', 'below', 'no-transform');
+                if (tooltip.yAlign) {
+                    tooltipEl.classList.add(tooltip.yAlign);
+                } else {
+                    tooltipEl.classList.add('no-transform');
+                }
+
+                function getBody(bodyItem) {
+                    var dataset = data.datasets[bodyItem.datasetIndex];
+                    var itemData = dataset.data[bodyItem.index];
+                    if (bodyItem.datasetIndex == 0)
+                        return dataset.label + ": " + itemData['v'] + " s";
+                    else {
+                        return dataset.label + ": " + itemData['v'] + " MB";
+                    }
+                }
+
+                // Set Text
+                if (tooltip.body) {
+                    var titleLines = tooltip.title || [];
+                    var bodyLines = tooltip.dataPoints.map(getBody);
+
+                    var innerHtml = '<thead>';
+
+                    titleLines.forEach(function (title) {
+                        innerHtml += '<tr><th>' + title + '</th></tr>';
+                    });
+                    innerHtml += '</thead><tbody>';
+
+                    bodyLines.forEach(function (body, i) {
+                        var colors = tooltip.labelColors[i];
+                        var style = 'background:' + colors.backgroundColor;
+                        style += '; border-color:' + colors.borderColor;
+                        style += '; border-width: 2px';
+                        var span = '<span class="chartjs-tooltip-key" style="' + style + '"></span>';
+                        innerHtml += '<tr><td>' + span + body + '</td></tr>';
+                    });
+                    innerHtml += '</tbody>';
+
+                    var tableRoot = tooltipEl.querySelector('table');
+                    tableRoot.innerHTML = innerHtml;
+                }
+
+                var rect = this._chart.canvas.getBoundingClientRect();
+                var positionY = rect.top + window.pageYOffset;
+                var positionX = rect.left;
+
+                // Display, position, and set styles for font
+                tooltipEl.style.opacity = 1;
+                tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+                tooltipEl.style.top = positionY + tooltip.caretY + 'px';
+                tooltipEl.style.padding = tooltip.yPadding + 'px ' + tooltip.xPadding + 'px';
+            };
+            var chart = new Chart(ctx, {
+                type: 'line',
+                data: data,
+                options: {
+                    animation: {
+                        duration: 0
+                    },
+                    hover: {
+                        animationDuration: 0
+                    },
+                    responsiveAnimationDuration: 0,
+                    elements: {
+                        line: {
+                            tension: 0
+                        }
+                    },
+                    scales: {
+                        yAxes: [{
+                            ticks: {
+                                beginAtZero: true
+                            }
+                        }]
+                    },
+                    tooltips: {
+                        enabled: false,
+                        mode: 'index',
+                        intersect: false,
+                        custom: customTooltip
+                    }
+                }
+            });
+        }
+        function loadChart(chartNode) {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    var data = JSON.parse(this.responseText)
+                    var node = document.createElement("canvas");
+                    node.classList = ["chartContainer"];
+                    node.width = 500;
+                    node.height = 150;
+                    chartNode.appendChild(node);
+                    addGraph(node, data);
+                }
+            };
+            var chartId = chartNode.getAttribute("chart-id");
+            xhttp.open("GET", "graph.json?id=" + chartId, true);
+            xhttp.send();
+        }
+        window.onload = function () {
+            for (let element of document.querySelectorAll(".toggle-table")) {
+                let name = element.parentElement.getAttribute("data-js-name");
+                let in_body = [];
+                let next = element.parentElement.parentElement.nextElementSibling;
+                while (next && next.getAttribute("data-field-start") !== "true") {
+                    in_body.push(next);
+                    next = next.nextElementSibling;
+                }
+                for (let detail of in_body) {
+                    detail.style.display = "none";
+                }
+                element.addEventListener("toggle", evt => {
+                    for (let detail of in_body) {
+                        if (element.open) {
+                            detail.style.display = "";
+                        } else {
+                            detail.style.display = "none";
+                        }
+                        var charts = detail.getElementsByClassName("chart");
+                        if (charts.length > 0) {
+                            var chart = charts[0];
+                            if (element.open) {
+                                loadChart(chart);
+                            } else {
+                                detail.getElementsByClassName("chartContainer")[0].remove();
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <form>
+        Revision range:
+        <input name="r0" value="{{ revision_low }}" />
+        <input name="r1" value="{{ revision_high }}" />
+        <input type="submit" value="Ok" />
+    </form>
+    <h1>CSB Benchmarks</h1>
+    <table class="benchtable">
+        <thead>
+            <tr>
+                <td />
+                <th>r{{ revision_low }}</th>
+                <th>r{{ revision_high }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for test in csb_tests %}
+            <tr data-field-start="true">
+                <th data-js-name="{{ test.name }}">
+                    <details class="toggle-table">
+                        <summary>{{ test.name }}</summary>
+                    </details>
+                </th>
+                <td>time: <span style="color:
+            {% if test.time_change < 0.99 %}
+                #0a0
+            {% elif test.time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.time_change }}%</span></td>
+                <td>mem: <span style="color:
+            {% if test.memory_change < 0.99 %}
+                #0a0
+            {% elif test.memory_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.memory_change }}%</span></td>
+            </tr>
+            <tr style="display:none">
+                <td>time:</td>
+                <td>{{ test.time0 }}s</td>
+                <td>{{ test.time1 }}s</td>
+            </tr>
+            <tr style="display:none">
+                <td>mem:</td>
+                <td>{{ test.memory0 }} MB</td>
+                <td>{{ test.memory1 }} MB</td>
+            </tr>
+            <tr style="display:none">
+                <td colspan="3" class="chart" chart-id="0">&nbsp;</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h1>Ini Benchmarks</h1>
+    <table class="benchtable">
+        <thead>
+            <tr>
+                <td />
+                <th>r{{ revision_low }}</th>
+                <th>r{{ revision_high }}</th>
+                <th />
+            </tr>
+        </thead>
+        <tbody>
+            {% for test in ini_tests %}
+            <tr data-field-start="true">
+                <th data-js-name="{{ test.name }}">
+                    <details class="toggle-table">
+                        <summary>{{ test.name }}</summary>
+                    </details>
+                </th>
+                <td>cut: <span style="color:
+            {% if test.cut_time_change < 0.99 %}
+                #0a0
+            {% elif test.cut_time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.cut_time_change }}%</span></td>
+                <td>draw: <span style="color:
+            {% if test.draw_time_change < 0.99 %}
+                #0a0
+            {% elif test.draw_time_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.draw_time_change }}%</span></td>
+                <td>mem: <span style="color:
+            {% if test.memory_change < 0.99 %}
+                #0a0
+            {% elif test.memory_change > 1.05 %}
+                #f00
+            {% else %}
+                #000
+            {% endif %}
+            ">{{ test.memory_change }}%</span></td>
+            </tr>
+            <tr style="display:none">
+                <td>cut:</td>
+                <td>{{ test.cut_time0 }}s</td>
+                <td>{{ test.cut_time1 }}s</td>
+            </tr>
+            <tr style="display:none">
+                <td>draw:</td>
+                <td>{{ test.draw_time0 }}s</td>
+                <td>{{ test.draw_time1 }}s</td>
+            </tr>
+            <tr style="display:none">
+                <td>mem:</td>
+                <td>{{ test.memory0 }} MB</td>
+                <td>{{ test.memory1 }} MB</td>
+            </tr>
+            <tr style="display:none">
+                <td colspan="4" class="chart">&nbsp;</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</html>
