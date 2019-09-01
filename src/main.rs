@@ -181,11 +181,7 @@ fn db_revision_comparison_ini(
 }
 
 fn to_rel_change(t1: f64, t2: f64) -> f64 {
-    if t1 > t2 {
-        t2 / t1 - 1.0
-    } else {
-        1.0 - t1 / t2
-    }
+    t2 / t1 - 1.0
 }
 
 fn tera_relative_change() -> tera::GlobalFn {
