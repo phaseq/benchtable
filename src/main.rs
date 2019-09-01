@@ -108,15 +108,15 @@ fn db_revision_comparison_csb(
         "SELECT a.config_file, ",
         "AVG(a.player_total_time), AVG(b.player_total_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_csb a ",
-        "JOIN processed_csb b ON a.config_file = b.config_file ",
-        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+        "FROM processed_csb a, processed_csb b ",
+        "WHERE a.config_file = b.config_file ",
+        "AND a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
         + &format!("ORDER BY {}", order_by);
 
     Ok(conn
-        .prepare(&query)?
+        .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
             let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
@@ -145,15 +145,15 @@ fn db_revision_comparison_ini(
         "AVG(a.cutting_time), AVG(b.cutting_time), ",
         "AVG(a.draw_time), AVG(b.draw_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_ini a ",
-        "JOIN processed_ini b ON a.config_file = b.config_file ",
-        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+        "FROM processed_ini a, processed_ini b ",
+        "WHERE a.config_file = b.config_file ",
+        "AND a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
         + &format!("ORDER BY {}", order_by);
 
     Ok(conn
-        .prepare(&query)?
+        .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
             let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
@@ -299,8 +299,8 @@ fn db_revision_history_for_file(
     let column_str = columns
         .iter()
         .format_with(",", |v, f| f(&format_args!("AVG({})", v)));
-    let mut stmt = conn.prepare(&format!(
-        "SELECT revision, {} FROM {} WHERE revision >= 800000 AND config_file LIKE ?1 GROUP BY revision ORDER BY revision",
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT revision, {} FROM {} WHERE config_file LIKE ?1 AND revision >= 800000 GROUP BY revision ORDER BY revision",
         column_str, table
     ))?;
     let results = stmt.query_map(&[config_file], |r| {
@@ -318,11 +318,10 @@ fn main() -> std::io::Result<()> {
     env_logger::init();
 
     HttpServer::new(|| {
-        /*let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
-        tera.register_function("relative_change", tera_relative_change());
-        tera.register_function("to_color", tera_to_color());*/
+        //let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+        //tera.register_function("relative_change", tera_relative_change());
+        //tera.register_function("to_color", tera_to_color());
         let conn = Connection::open("cutsim-testreport.db").unwrap();
-
         App::new()
             //.data(tera)
             .data(conn)
