@@ -249,13 +249,13 @@
                 </td>
             </tr>
             <tr style="display:none">
-                <td>time:</td>
+                <th style="text-align: right">r{{ revision_low }}</th>
                 <td>{{ test.time0 | round(precision=2) }} s</td>
-                <td>{{ test.time1 | round(precision=2) }} s</td>
+                <td>{{ test.memory0 | round(precision=0) }} MB</td>
             </tr>
             <tr style="display:none">
-                <td>mem:</td>
-                <td>{{ test.memory0 | round(precision=0) }} MB</td>
+                <th style="text-align: right">r{{ revision_high }}</th>
+                <td>{{ test.time1 | round(precision=2) }} s</td>
                 <td>{{ test.memory1 | round(precision=0) }} MB</td>
             </tr>
             <tr style="display:none">
@@ -292,22 +292,16 @@
                 </td>
             </tr>
             <tr style="display:none">
-                <td>cut:</td>
+                <th style="text-align: right">r{{ revision_low }}:</th>
                 <td>{{ test.cut_time0 | round(precision=2) }} s</td>
-                <td>{{ test.cut_time1 | round(precision=2) }} s</td>
-                <td></td>
-            </tr>
-            <tr style="display:none">
-                <td>draw:</td>
                 <td>{{ test.draw_time0 | round(precision=2) }} s</td>
-                <td>{{ test.draw_time1 | round(precision=2) }} s</td>
-                <td></td>
+                <td>{{ test.memory0 | round(precision=0) }} MB</td>
             </tr>
             <tr style="display:none">
-                <td>mem:</td>
-                <td>{{ test.memory0 | round(precision=0) }} MB</td>
+                <th style="text-align: right">r{{ revision_high }}:</th>
+                <td>{{ test.cut_time1 | round(precision=2) }} s</td>
+                <td>{{ test.draw_time1 | round(precision=2) }} s</td>
                 <td>{{ test.memory1 | round(precision=0) }} MB</td>
-                <td></td>
             </tr>
             <tr style="display:none">
                 <td colspan="4" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>

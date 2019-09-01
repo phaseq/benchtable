@@ -37,7 +37,7 @@ struct IndexRequest {
     sort: Option<String>,
 }
 fn index(
-    //_tmpl: web::Data<tera::Tera>,
+    //tmpl: web::Data<tera::Tera>,
     conn: web::Data<Connection>,
     query: web::Query<IndexRequest>,
 ) -> actix_web::Result<HttpResponse> {
@@ -47,38 +47,9 @@ fn index(
     let first_revision = query.r2.unwrap_or(second_revision - 2000);
     let sort = query.sort.clone().unwrap_or("cut time".to_string());
 
-    let csb_order_by = match sort.as_ref() {
-        "cut time" | "draw time" => "AVG(a.player_total_time) / AVG(b.player_total_time)",
-        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
-        _ => "a.config_file",
-    };
-
-    let csb_tests =
-        match db_revision_comparison_csb(&conn, first_revision, second_revision, csb_order_by) {
-            Ok(tests) => tests,
-            Err(e) => {
-                return Ok(HttpResponse::InternalServerError()
-                    .content_type("text/http")
-                    .body(e.to_string()))
-            }
-        };
-
-    let ini_order_by = match sort.as_ref() {
-        "cut time" => "AVG(a.cutting_time) / AVG(b.cutting_time)",
-        "draw time" => "AVG(a.draw_time) / AVG(b.draw_time)",
-        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
-        _ => "a.config_file",
-    };
-
-    let ini_tests =
-        match db_revision_comparison_ini(&conn, first_revision, second_revision, ini_order_by) {
-            Ok(tests) => tests,
-            Err(e) => {
-                return Ok(HttpResponse::InternalServerError()
-                    .content_type("text/http")
-                    .body(e.to_string()))
-            }
-        };
+    let (csb_tests, ini_tests) =
+        db_revision_comparison(&conn, first_revision, second_revision, &sort)
+            .map_err(error::ErrorInternalServerError)?;
 
     let mut context = Context::new();
     context.insert("title", "CutSim benchmarks");
@@ -92,7 +63,7 @@ fn index(
     tmpl.register_function("to_color", tera_to_color());
     let s = tmpl
         .render("index.html", &context)
-        .map_err(|e| error::ErrorInternalServerError(format!("{:?}", e)))?;
+        .map_err(error::ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().content_type("text/html").body(s))
 }
 
@@ -102,6 +73,29 @@ fn db_latest_revision(conn: &Connection, table: &str) -> rusqlite::Result<u32> {
         .query_map(rusqlite::NO_PARAMS, |row| Ok(row.get(0)?))?
         .next()
         .unwrap()?)
+}
+
+fn db_revision_comparison(
+    conn: &Connection,
+    revision1: u32,
+    revision2: u32,
+    order_by: &str,
+) -> rusqlite::Result<(Vec<CsbTest>, Vec<IniTest>)> {
+    let csb_order_by = match order_by {
+        "cut time" | "draw time" => "AVG(a.player_total_time) / AVG(b.player_total_time)",
+        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
+        _ => "a.config_file",
+    };
+    let ini_order_by = match order_by {
+        "cut time" => "AVG(a.cutting_time) / AVG(b.cutting_time)",
+        "draw time" => "AVG(a.draw_time) / AVG(b.draw_time)",
+        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
+        _ => "a.config_file",
+    };
+    Ok((
+        db_revision_comparison_csb(&conn, revision1, revision2, csb_order_by)?,
+        db_revision_comparison_ini(&conn, revision1, revision2, ini_order_by)?,
+    ))
 }
 
 fn db_revision_comparison_csb(
@@ -267,14 +261,8 @@ fn graph_json(
     config_file: &str,
 ) -> actix_web::Result<HttpResponse> {
     let sql_columns: Vec<_> = columns.iter().map(|c| c.1).collect();
-    let db_data = match db_revision_history_for_file(&conn, table, &sql_columns, config_file) {
-        Ok(data) => data,
-        Err(e) => {
-            return Ok(HttpResponse::InternalServerError()
-                .content_type("text/html")
-                .body(e.to_string()))
-        }
-    };
+    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, config_file)
+        .map_err(error::ErrorInternalServerError)?;
     let labels: Vec<_> = db_data.iter().map(|r| r.0).collect();
     let colors = vec![
         "rgb(54, 162, 235)",
@@ -298,9 +286,7 @@ fn graph_json(
             })
         })
         .collect();
-    let json = json!({"labels": labels,
-    "datasets": datasets})
-    .to_string();
+    let json = json!({"labels": labels, "datasets": datasets}).to_string();
     Ok(HttpResponse::Ok().content_type("text/json").body(json))
 }
 
@@ -332,11 +318,13 @@ fn main() -> std::io::Result<()> {
     env_logger::init();
 
     HttpServer::new(|| {
-        let tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+        /*let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+        tera.register_function("relative_change", tera_relative_change());
+        tera.register_function("to_color", tera_to_color());*/
         let conn = Connection::open("cutsim-testreport.db").unwrap();
 
         App::new()
-            .data(tera)
+            //.data(tera)
             .data(conn)
             .wrap(middleware::Logger::default()) // enable logger
             .service(web::resource("/").route(web::get().to(index)))
