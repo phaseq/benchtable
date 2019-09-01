@@ -45,15 +45,16 @@ fn index(
         .r1
         .unwrap_or_else(|| db_latest_revision(&conn, "processed_csb").unwrap());
     let first_revision = query.r2.unwrap_or(second_revision - 1000);
-    let sort = query.sort.clone().unwrap_or("time".to_string());
-    let order_by = match sort.as_ref() {
-        "time" => "AVG(b.player_total_time) / AVG(a.player_total_time)",
-        "memory" => "AVG(b.memory_peak) / AVG(a.memory_peak)",
+    let sort = query.sort.clone().unwrap_or("cut time".to_string());
+
+    let csb_order_by = match sort.as_ref() {
+        "cut time" | "draw time" => "AVG(a.player_total_time) / AVG(b.player_total_time)",
+        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
         _ => "a.config_file",
     };
 
     let csb_tests =
-        match db_revision_comparison_csb(&conn, first_revision, second_revision, order_by) {
+        match db_revision_comparison_csb(&conn, first_revision, second_revision, csb_order_by) {
             Ok(tests) => tests,
             Err(e) => {
                 return Ok(HttpResponse::InternalServerError()
@@ -62,8 +63,15 @@ fn index(
             }
         };
 
+    let ini_order_by = match sort.as_ref() {
+        "cut time" => "AVG(a.cutting_time) / AVG(b.cutting_time)",
+        "draw time" => "AVG(a.draw_time) / AVG(b.draw_time)",
+        "memory" => "AVG(a.memory_peak) / AVG(b.memory_peak)",
+        _ => "a.config_file",
+    };
+
     let ini_tests =
-        match db_revision_comparison_ini(&conn, first_revision, second_revision, "a.config_file") {
+        match db_revision_comparison_ini(&conn, first_revision, second_revision, ini_order_by) {
             Ok(tests) => tests,
             Err(e) => {
                 return Ok(HttpResponse::InternalServerError()
@@ -158,12 +166,12 @@ fn db_revision_comparison_ini(
                 cut_time0: row.get(1)?,
                 cut_time1: row.get(2)?,
                 cut_time_change: to_rel_change(row.get(1)?, row.get(2)?),
-                draw_time0: row.get(1)?,
-                draw_time1: row.get(2)?,
-                draw_time_change: to_rel_change(row.get(1)?, row.get(2)?),
-                memory0: row.get(3)?,
-                memory1: row.get(4)?,
-                memory_change: to_rel_change(row.get(3)?, row.get(4)?),
+                draw_time0: row.get(3)?,
+                draw_time1: row.get(4)?,
+                draw_time_change: to_rel_change(row.get(3)?, row.get(4)?),
+                memory0: row.get(5)?,
+                memory1: row.get(6)?,
+                memory_change: to_rel_change(row.get(5)?, row.get(6)?),
             })
         })?
         .filter_map(|r| r.ok())

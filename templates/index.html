@@ -218,8 +218,9 @@
         <input name="r1" value="{{ revision_high }}" />
         <select name="sort">
             <option{% if sort == "name" %} selected {%endif%}>name</option>
-                <option{% if sort == "time" %} selected {%endif%}>time</option>
-                    <option{% if sort == "memory" %} selected {%endif%}>memory</option>
+                <option{% if sort == "cut time" %} selected {%endif%}>cut time</option>
+                    <option{% if sort == "draw time" %} selected {%endif%}>draw time</option>
+                        <option{% if sort == "memory" %} selected {%endif%}>memory</option>
         </select>
         <input type="submit" value="Ok" />
     </form>
