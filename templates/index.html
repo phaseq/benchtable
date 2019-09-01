@@ -15,7 +15,7 @@
 
         .benchtable th {
             font-weight: bold;
-            text-align: right;
+            text-align: left;
         }
 
         canvas {
@@ -216,6 +216,11 @@
         Revision range:
         <input name="r0" value="{{ revision_low }}" />
         <input name="r1" value="{{ revision_high }}" />
+        <select name="sort">
+            <option{% if sort == "name" %} selected {%endif%}>name</option>
+                <option{% if sort == "time" %} selected {%endif%}>time</option>
+                    <option{% if sort == "memory" %} selected {%endif%}>memory</option>
+        </select>
         <input type="submit" value="Ok" />
     </form>
     <h1>CSB Benchmarks</h1>
@@ -243,7 +248,7 @@
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.time_change * 100 | round(precision=0) }}%</span></td>
+            ">{% if test.time_change > 0 %}+{% endif %}{{ test.time_change * 100 | round(precision=0) }}%</span></td>
                 <td>mem: <span style="color:
             {% if test.memory_change < -0.05 %}
                 #0a0
@@ -252,7 +257,8 @@
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.memory_change * 100 | round(precision=0) }}%</span></td>
+            ">{% if test.memory_change > 0 %}+{% endif %}{{ test.memory_change * 100 | round(precision=0) }}%</span>
+                </td>
             </tr>
             <tr style="display:none">
                 <td>time:</td>
@@ -289,7 +295,8 @@
                         <summary>{{ test.name }}</summary>
                     </details>
                 </th>
-                <td>cut: <span style="color:
+                <td>cut: <span
+                        style="color:
             {% if test.cut_time_change < -0.05 %}
                 #0a0
             {% elif test.cut_time_change > 0.05 %}
@@ -297,8 +304,9 @@
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.cut_time_change * 100 | round(precision=0) }}%</span></td>
-                <td>draw: <span style="color:
+            ">{% if test.cut_time_change > 0 %}+{% endif %}{{ test.cut_time_change * 100 | round(precision=0) }}%</span></td>
+                <td>draw: <span
+                        style="color:
             {% if test.draw_time_change < -0.05 %}
                 #0a0
             {% elif test.draw_time_change > 0.05 %}
@@ -306,7 +314,7 @@
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.draw_time_change * 100 | round(precision=0) }}%</span></td>
+            ">{% if test.draw_time_change > 0 %}+{% endif %}{{ test.draw_time_change * 100 | round(precision=0) }}%</span></td>
                 <td>mem: <span style="color:
             {% if test.memory_change < -0.05 %}
                 #0a0
@@ -315,7 +323,8 @@
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.memory_change * 100 | round(precision=0) }}%</span></td>
+            ">{% if test.memory_change > 0 %}+{% endif %}{{ test.memory_change * 100 | round(precision=0) }}%</span>
+                </td>
             </tr>
             <tr style="display:none">
                 <td>cut:</td>

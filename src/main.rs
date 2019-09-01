@@ -3,8 +3,6 @@ use itertools::Itertools;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
-use std::iter::FromIterator;
 use tera::{compile_templates, Context};
 
 #[derive(Serialize)]
@@ -32,40 +30,53 @@ struct IniTest {
     memory_change: f64,
 }
 
+#[derive(Deserialize)]
+struct IndexRequest {
+    r1: Option<u32>,
+    r2: Option<u32>,
+    sort: Option<String>,
+}
 fn index(
-    _tmpl: web::Data<tera::Tera>,
+    //_tmpl: web::Data<tera::Tera>,
     conn: web::Data<Connection>,
-    query: web::Query<HashMap<String, String>>,
+    query: web::Query<IndexRequest>,
 ) -> actix_web::Result<HttpResponse> {
-    let first_revision = query
-        .get("r0")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(800_000);
     let second_revision = query
-        .get("r1")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(896_000);
+        .r1
+        .unwrap_or_else(|| db_latest_revision(&conn, "processed_csb").unwrap());
+    let first_revision = query.r2.unwrap_or(second_revision - 1000);
+    let sort = query.sort.clone().unwrap_or("time".to_string());
+    let order_by = match sort.as_ref() {
+        "time" => "AVG(b.player_total_time) / AVG(a.player_total_time)",
+        "memory" => "AVG(b.memory_peak) / AVG(a.memory_peak)",
+        _ => "a.config_file",
+    };
 
-    let csb_tests = get_csb_runs_cmp(&conn, first_revision, second_revision);
-    if let Err(e) = csb_tests {
-        return Ok(HttpResponse::InternalServerError()
-            .content_type("text/http")
-            .body(e.to_string()));
-    }
-    let csb_tests = csb_tests.unwrap();
+    let csb_tests =
+        match db_revision_comparison_csb(&conn, first_revision, second_revision, order_by) {
+            Ok(tests) => tests,
+            Err(e) => {
+                return Ok(HttpResponse::InternalServerError()
+                    .content_type("text/http")
+                    .body(e.to_string()))
+            }
+        };
 
-    let ini_tests = get_ini_runs_cmp(&conn, first_revision, second_revision);
-    if let Err(e) = ini_tests {
-        return Ok(HttpResponse::InternalServerError()
-            .content_type("text/http")
-            .body(e.to_string()));
-    }
-    let ini_tests = ini_tests.unwrap();
+    let ini_tests =
+        match db_revision_comparison_ini(&conn, first_revision, second_revision, "a.config_file") {
+            Ok(tests) => tests,
+            Err(e) => {
+                return Ok(HttpResponse::InternalServerError()
+                    .content_type("text/http")
+                    .body(e.to_string()))
+            }
+        };
 
     let mut context = Context::new();
     context.insert("title", "CutSim benchmarks");
     context.insert("revision_low", &first_revision);
     context.insert("revision_high", &second_revision);
+    context.insert("sort", &sort);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
     let tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
@@ -73,6 +84,100 @@ fn index(
         .render("index.html", &context)
         .map_err(|e| error::ErrorInternalServerError(format!("{:?}", e)))?;
     Ok(HttpResponse::Ok().content_type("text/html").body(s))
+}
+
+fn db_latest_revision(conn: &Connection, table: &str) -> rusqlite::Result<u32> {
+    Ok(conn
+        .prepare(&format!("SELECT MAX(revision) FROM {}", table))?
+        .query_map(rusqlite::NO_PARAMS, |row| Ok(row.get(0)?))?
+        .next()
+        .unwrap()?)
+}
+
+fn db_revision_comparison_csb(
+    conn: &Connection,
+    revision1: u32,
+    revision2: u32,
+    order_by: &str,
+) -> rusqlite::Result<Vec<CsbTest>> {
+    let query = concat!(
+        "SELECT a.config_file, ",
+        "AVG(a.player_total_time), AVG(b.player_total_time), ",
+        "AVG(a.memory_peak), AVG(b.memory_peak) ",
+        "FROM processed_csb a ",
+        "JOIN processed_csb b ON a.config_file = b.config_file ",
+        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+    )
+    .to_string()
+        + &format!("ORDER BY {}", order_by);
+
+    Ok(conn
+        .prepare(&query)?
+        .query_map(&[&revision1, &revision2], |row| {
+            let name: String = row.get(0)?;
+            let name = name.split("\\testcases\\").last().unwrap_or(&name);
+            Ok(CsbTest {
+                name: name.to_string(),
+                time0: row.get(1)?,
+                time1: row.get(2)?,
+                time_change: to_rel_change(row.get(1)?, row.get(2)?),
+                memory0: row.get(3)?,
+                memory1: row.get(4)?,
+                memory_change: to_rel_change(row.get(3)?, row.get(4)?),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect())
+}
+
+fn db_revision_comparison_ini(
+    conn: &Connection,
+    revision1: u32,
+    revision2: u32,
+    order_by: &str,
+) -> rusqlite::Result<Vec<IniTest>> {
+    let query = concat!(
+        "SELECT a.config_file, ",
+        "AVG(a.cutting_time), AVG(b.cutting_time), ",
+        "AVG(a.draw_time), AVG(b.draw_time), ",
+        "AVG(a.memory_peak), AVG(b.memory_peak) ",
+        "FROM processed_ini a ",
+        "JOIN processed_ini b ON a.config_file = b.config_file ",
+        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+    )
+    .to_string()
+        + &format!("ORDER BY {}", order_by);
+
+    Ok(conn
+        .prepare(&query)?
+        .query_map(&[&revision1, &revision2], |row| {
+            let name: String = row.get(0)?;
+            let name = name.split("\\testcases\\").last().unwrap_or(&name);
+            Ok(IniTest {
+                name: name.to_string(),
+                cut_time0: row.get(1)?,
+                cut_time1: row.get(2)?,
+                cut_time_change: to_rel_change(row.get(1)?, row.get(2)?),
+                draw_time0: row.get(1)?,
+                draw_time1: row.get(2)?,
+                draw_time_change: to_rel_change(row.get(1)?, row.get(2)?),
+                memory0: row.get(3)?,
+                memory1: row.get(4)?,
+                memory_change: to_rel_change(row.get(3)?, row.get(4)?),
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect())
+}
+
+fn to_rel_change(t1: f64, t2: f64) -> f64 {
+    if t1.is_nan() || t2.is_nan() || t1 == 0.0 || t2 == 0.0 {
+        0.0
+    } else if t1 > t2 {
+        t2 / t1 - 1.0
+    } else {
+        1.0 - t1 / t2
+    }
 }
 
 #[derive(Deserialize)]
@@ -172,124 +277,6 @@ fn db_revision_history_for_file(
         Ok((r.get(0)?, stats))
     })?;
     Ok(results.filter_map(|r| r.ok()).collect())
-}
-
-#[derive(Debug)]
-struct CsbRow {
-    name: String,
-    time: f64,
-    memory: f64,
-}
-
-#[derive(Debug)]
-struct IniRow {
-    name: String,
-    cut_time: f64,
-    draw_time: f64,
-    memory: f64,
-}
-
-fn get_csb_runs_cmp(
-    conn: &Connection,
-    revision1: u32,
-    revision2: u32,
-) -> rusqlite::Result<Vec<CsbTest>> {
-    let results1 = get_csb_runs(conn, revision1)?;
-    let results2 = get_csb_runs(conn, revision2)?;
-
-    let mut results = Vec::new();
-    for (name, r) in results1 {
-        if let Some(r2) = results2.get(&name) {
-            results.push(CsbTest {
-                name: r.name,
-                time0: r.time,
-                time1: r2.time,
-                time_change: to_rel_change(r.time, r2.time),
-                memory0: r.memory,
-                memory1: r2.memory,
-                memory_change: to_rel_change(r.memory, r2.memory),
-            });
-        }
-    }
-    results.sort_by(|r1, r2| r1.name.cmp(&r2.name));
-    Ok(results)
-}
-
-fn get_csb_runs(conn: &Connection, revision: u32) -> rusqlite::Result<HashMap<String, CsbRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT config_file, AVG(player_total_time), AVG(memory_peak) FROM processed_csb WHERE revision=?1 GROUP BY config_file",
-    )?;
-    let result = HashMap::from_iter(
-        stmt.query_map(&[&revision], |row| {
-            let name: String = row.get(0)?;
-            let name = name.split('\\').last().unwrap_or(&name);
-            Ok(CsbRow {
-                name: name.to_string(),
-                time: row.get(1)?,
-                memory: row.get(2)?,
-            })
-        })?
-        .filter_map(|r| r.ok().map(|r| (r.name.clone(), r))),
-    );
-    Ok(result)
-}
-
-fn get_ini_runs_cmp(
-    conn: &Connection,
-    revision1: u32,
-    revision2: u32,
-) -> rusqlite::Result<Vec<IniTest>> {
-    let results1 = get_ini_runs(conn, revision1)?;
-    let results2 = get_ini_runs(conn, revision2)?;
-
-    let mut results = Vec::new();
-    for (name, r) in results1 {
-        if let Some(r2) = results2.get(&name) {
-            results.push(IniTest {
-                name: r.name,
-                cut_time0: r.cut_time,
-                cut_time1: r2.cut_time,
-                cut_time_change: to_rel_change(r.cut_time, r2.cut_time),
-                draw_time0: r.draw_time,
-                draw_time1: r2.draw_time,
-                draw_time_change: to_rel_change(r.draw_time, r2.draw_time),
-                memory0: r.memory,
-                memory1: r2.memory,
-                memory_change: to_rel_change(r.memory, r2.memory),
-            });
-        }
-    }
-    results.sort_by(|r1, r2| r1.name.cmp(&r2.name));
-
-    Ok(results)
-}
-
-fn get_ini_runs(conn: &Connection, revision: u32) -> rusqlite::Result<HashMap<String, IniRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT config_file, AVG(cutting_time), AVG(draw_time), AVG(memory_peak) FROM processed_ini WHERE revision=?1 GROUP BY config_file",
-    )?;
-    let result = HashMap::from_iter(
-        stmt.query_map(&[&revision], |row| {
-            let name: String = row.get(0)?;
-            let name = name.split('\\').last().unwrap_or(&name);
-            Ok(IniRow {
-                name: name.to_string(),
-                cut_time: row.get(1)?,
-                draw_time: row.get(2)?,
-                memory: row.get(3)?,
-            })
-        })?
-        .filter_map(|r| r.ok().map(|r| (r.name.clone(), r))),
-    );
-    Ok(result)
-}
-
-fn to_rel_change(t1: f64, t2: f64) -> f64 {
-    if t1 > t2 {
-        t2 / t1 - 1.0
-    } else {
-        1.0 - t1 / t2
-    }
 }
 
 fn main() -> std::io::Result<()> {
