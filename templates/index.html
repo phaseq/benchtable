@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 
 <head>
@@ -7,14 +8,14 @@
             font-family: monospace;
         }
 
-        #benchtable th,
-        #benchtable td {
+        .benchtable th,
+        .benchtable td {
             padding: 0.3em 1em;
-            text-align: right
         }
 
-        #benchtable th {
-            font-weight: bold
+        .benchtable th {
+            font-weight: bold;
+            text-align: right;
         }
 
         canvas {
@@ -36,7 +37,7 @@
             transform: translate(-50%, 0);
         }
 
-        #chartjs-tooltip table {
+        #chartjs-tooltip table td {
             color: white;
         }
 
@@ -59,7 +60,7 @@
                     tooltipEl = document.createElement('div');
                     tooltipEl.id = 'chartjs-tooltip';
                     tooltipEl.innerHTML = '<table></table>';
-                    this._chart.canvas.parentNode.appendChild(tooltipEl);
+                    document.body.appendChild(tooltipEl);
                 }
 
                 // Hide if no tooltip
@@ -79,10 +80,10 @@
                 function getBody(bodyItem) {
                     var dataset = data.datasets[bodyItem.datasetIndex];
                     var itemData = dataset.data[bodyItem.index];
-                    if (bodyItem.datasetIndex == 0)
-                        return dataset.label + ": " + itemData['v'] + " s";
+                    if (bodyItem.datasetIndex != 0)
+                        return dataset.label + ": " + Math.round(itemData['v'] * 100) / 100 + " s";
                     else {
-                        return dataset.label + ": " + itemData['v'] + " MB";
+                        return dataset.label + ": " + Math.round(itemData['v']) + " MB";
                     }
                 }
 
@@ -167,8 +168,12 @@
                     addGraph(node, data);
                 }
             };
-            var chartId = chartNode.getAttribute("chart-id");
-            xhttp.open("GET", "graph.json?id=" + chartId, true);
+            var chartId = chartNode.getAttribute("data-chart-id");
+            if (chartId.includes(".csb")) {
+                xhttp.open("GET", "csb_graph.json?id=%" + chartId, true);
+            } else {
+                xhttp.open("GET", "ini_graph.json?id=%" + chartId, true);
+            }
             xhttp.send();
         }
         window.onload = function () {
@@ -217,7 +222,7 @@
     <table class="benchtable">
         <thead>
             <tr>
-                <td />
+                <td></td>
                 <th>r{{ revision_low }}</th>
                 <th>r{{ revision_high }}</th>
             </tr>
@@ -231,23 +236,23 @@
                     </details>
                 </th>
                 <td>time: <span style="color:
-            {% if test.time_change < 0.99 %}
+            {% if test.time_change < -0.05 %}
                 #0a0
-            {% elif test.time_change > 1.05 %}
+            {% elif test.time_change > 0.05 %}
                 #f00
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.time_change }}%</span></td>
+            ">{{ test.time_change * 100 | round(precision=0) }}%</span></td>
                 <td>mem: <span style="color:
-            {% if test.memory_change < 0.99 %}
+            {% if test.memory_change < -0.05 %}
                 #0a0
-            {% elif test.memory_change > 1.05 %}
+            {% elif test.memory_change > 0.05 %}
                 #f00
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.memory_change }}%</span></td>
+            ">{{ test.memory_change * 100 | round(precision=0) }}%</span></td>
             </tr>
             <tr style="display:none">
                 <td>time:</td>
@@ -260,7 +265,7 @@
                 <td>{{ test.memory1 }} MB</td>
             </tr>
             <tr style="display:none">
-                <td colspan="3" class="chart" chart-id="0">&nbsp;</td>
+                <td colspan="3" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -270,10 +275,10 @@
     <table class="benchtable">
         <thead>
             <tr>
-                <td />
+                <td></td>
                 <th>r{{ revision_low }}</th>
                 <th>r{{ revision_high }}</th>
-                <th />
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -285,50 +290,53 @@
                     </details>
                 </th>
                 <td>cut: <span style="color:
-            {% if test.cut_time_change < 0.99 %}
+            {% if test.cut_time_change < -0.05 %}
                 #0a0
-            {% elif test.cut_time_change > 1.05 %}
+            {% elif test.cut_time_change > 0.05 %}
                 #f00
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.cut_time_change }}%</span></td>
+            ">{{ test.cut_time_change * 100 | round(precision=0) }}%</span></td>
                 <td>draw: <span style="color:
-            {% if test.draw_time_change < 0.99 %}
+            {% if test.draw_time_change < -0.05 %}
                 #0a0
-            {% elif test.draw_time_change > 1.05 %}
+            {% elif test.draw_time_change > 0.05 %}
                 #f00
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.draw_time_change }}%</span></td>
+            ">{{ test.draw_time_change * 100 | round(precision=0) }}%</span></td>
                 <td>mem: <span style="color:
-            {% if test.memory_change < 0.99 %}
+            {% if test.memory_change < -0.05 %}
                 #0a0
-            {% elif test.memory_change > 1.05 %}
+            {% elif test.memory_change > 0.05 %}
                 #f00
             {% else %}
                 #000
             {% endif %}
-            ">{{ test.memory_change }}%</span></td>
+            ">{{ test.memory_change * 100 | round(precision=0) }}%</span></td>
             </tr>
             <tr style="display:none">
                 <td>cut:</td>
                 <td>{{ test.cut_time0 }}s</td>
                 <td>{{ test.cut_time1 }}s</td>
+                <td></td>
             </tr>
             <tr style="display:none">
                 <td>draw:</td>
                 <td>{{ test.draw_time0 }}s</td>
                 <td>{{ test.draw_time1 }}s</td>
+                <td></td>
             </tr>
             <tr style="display:none">
                 <td>mem:</td>
                 <td>{{ test.memory0 }} MB</td>
                 <td>{{ test.memory1 }} MB</td>
+                <td></td>
             </tr>
             <tr style="display:none">
-                <td colspan="4" class="chart">&nbsp;</td>
+                <td colspan="4" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>
             </tr>
             {% endfor %}
         </tbody>

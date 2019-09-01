@@ -1,7 +1,10 @@
 use actix_web::{error, middleware, web, App, HttpResponse, HttpServer};
-//use rusqlite::Connection;
-use serde_derive::Serialize;
+use itertools::Itertools;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use tera::{compile_templates, Context};
 
 #[derive(Serialize)]
@@ -31,6 +34,7 @@ struct IniTest {
 
 fn index(
     _tmpl: web::Data<tera::Tera>,
+    conn: web::Data<Connection>,
     query: web::Query<HashMap<String, String>>,
 ) -> actix_web::Result<HttpResponse> {
     let first_revision = query
@@ -42,40 +46,21 @@ fn index(
         .and_then(|s| s.parse().ok())
         .unwrap_or(896_000);
 
-    /*let conn = Connection::open("cutsim-testreport.db").unwrap();
+    let csb_tests = get_csb_runs_cmp(&conn, first_revision, second_revision);
+    if let Err(e) = csb_tests {
+        return Ok(HttpResponse::InternalServerError()
+            .content_type("text/http")
+            .body(e.to_string()));
+    }
+    let csb_tests = csb_tests.unwrap();
 
-    let csb_first = get_csb_runs(&conn, first_revision).unwrap();
-    let csb_second = get_csb_runs(&conn, second_revision).unwrap();
-    let ini_first = get_ini_runs(&conn, first_revision).unwrap();
-    let ini_second = get_ini_runs(&conn, second_revision).unwrap();*/
-
-    /*let mut csb_first = HashMap::new();
-    csb_first.insert("test1".to_string(), vec![(1.5, 1240.0)]);
-    let mut csb_second = HashMap::new();
-    csb_second.insert("test1".to_string(), vec![(1.3, 220.0)]);*/
-
-    let csb_tests = vec![CsbTest {
-        name: "test1".to_string(),
-        time0: 1.5,
-        time1: 1.3,
-        time_change: -1.4,
-        memory0: 240.0,
-        memory1: 1220.0,
-        memory_change: 90.0,
-    }];
-
-    let ini_tests = vec![IniTest {
-        name: "test_ini".to_string(),
-        cut_time0: 1.5,
-        cut_time1: 1.3,
-        cut_time_change: -1.4,
-        draw_time0: 11.5,
-        draw_time1: 15.3,
-        draw_time_change: 10.4,
-        memory0: 240.0,
-        memory1: 1220.0,
-        memory_change: 90.0,
-    }];
+    let ini_tests = get_ini_runs_cmp(&conn, first_revision, second_revision);
+    if let Err(e) = ini_tests {
+        return Ok(HttpResponse::InternalServerError()
+            .content_type("text/http")
+            .body(e.to_string()));
+    }
+    let ini_tests = ini_tests.unwrap();
 
     let mut context = Context::new();
     context.insert("title", "CutSim benchmarks");
@@ -90,70 +75,103 @@ fn index(
     Ok(HttpResponse::Ok().content_type("text/html").body(s))
 }
 
-fn graph_json(_query: web::Query<HashMap<String, String>>) -> actix_web::Result<HttpResponse> {
-    Ok(HttpResponse::Ok().content_type("text/json").body(
-        r#"{
-    "labels": [
-        700000, 700500, 701000, 701500, 702000, 702500, 703000, 703500, 704000, 704500, 705000
-    ],
-    "datasets": [{
-        "label": "Cut Time",
-        "backgroundColor": "rgb(255, 159, 64)",
-        "borderColor": "rgb(255, 159, 64)",
-        "fill": false,
-        "data": [
-            { "x": 700000, "y": 1.0, "v": 20 },
-            { "x": 700500, "y": 1.1, "v": 22 },
-            { "x": 701000, "y": 1.1, "v": 22 },
-            { "x": 701500, "y": 1.3, "v": 26 },
-            { "x": 702000, "y": 1.3, "v": 26 },
-            { "x": 702500, "y": 1.3, "v": 26 },
-            { "x": 703000, "y": 1.25, "v": 25 },
-            { "x": 703500, "y": 1.25, "v": 25 },
-            { "x": 704000, "y": 0.9, "v": 18 },
-            { "x": 704500, "y": 0.903, "v": 18 },
-            { "x": 705000, "y": 0.901, "v": 18 }
-        ]
-    },
-    {
-        "label": "Memory",
-        "backgroundColor": "rgb(54, 162, 235)",
-        "borderColor": "rgb(54, 162, 235)",
-        "fill": false,
-        "data": [
-            { "x": 700000, "y": 1.0, "v": 20 },
-            { "x": 700500, "y": 1.3, "v": 22 },
-            { "x": 701000, "y": 1.5, "v": 22 },
-            { "x": 701500, "y": 1.1, "v": 26 },
-            { "x": 702000, "y": 1.3, "v": 26 },
-            { "x": 702500, "y": 1.6, "v": 26 },
-            { "x": 703000, "y": 1.35, "v": 25 },
-            { "x": 703500, "y": 1.15, "v": 25 },
-            { "x": 704000, "y": 0.96, "v": 18 },
-            { "x": 704500, "y": 0.63, "v": 18 },
-            { "x": 705000, "y": 0.51, "v": 18 }
-        ]
-    }]
-}"#,
-    ))
+#[derive(Deserialize)]
+struct GraphJsonRequest {
+    id: String,
+}
+fn csb_graph_json(
+    conn: web::Data<Connection>,
+    query: web::Query<GraphJsonRequest>,
+) -> actix_web::Result<HttpResponse> {
+    graph_json(
+        conn,
+        "processed_csb",
+        &[("Memory", "memory_peak"), ("Run Time", "player_total_time")],
+        &query.id,
+    )
 }
 
-fn main() -> std::io::Result<()> {
-    //std::env::set_var("RUST_LOG", "actix_web=info");
-    env_logger::init();
+fn ini_graph_json(
+    conn: web::Data<Connection>,
+    query: web::Query<GraphJsonRequest>,
+) -> actix_web::Result<HttpResponse> {
+    graph_json(
+        conn,
+        "processed_ini",
+        &[
+            ("Memory", "memory_peak"),
+            ("Cut Time", "cutting_time"),
+            ("Draw Time", "draw_time"),
+        ],
+        &query.id,
+    )
+}
 
-    HttpServer::new(|| {
-        let tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+fn graph_json(
+    conn: web::Data<Connection>,
+    table: &str,
+    columns: &[(&str, &str)],
+    config_file: &str,
+) -> actix_web::Result<HttpResponse> {
+    let sql_columns: Vec<_> = columns.iter().map(|c| c.1).collect();
+    let db_data = match db_revision_history_for_file(&conn, table, &sql_columns, config_file) {
+        Ok(data) => data,
+        Err(e) => {
+            return Ok(HttpResponse::InternalServerError()
+                .content_type("text/html")
+                .body(e.to_string()))
+        }
+    };
+    let labels: Vec<_> = db_data.iter().map(|r| r.0).collect();
+    let colors = vec![
+        "rgb(54, 162, 235)",
+        "rgb(255, 159, 64)",
+        "rgb(75, 192, 192)",
+    ];
+    let datasets: Vec<_> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, (title, _))| {
+            let data: Vec<_> = db_data
+                .iter()
+                .map(|r| json!({"x": r.0, "y": r.1[i] / db_data[0].1[i], "v": r.1[i]}))
+                .collect();
+            json!({
+                "label": title,
+                "backgroundColor": colors[i],
+                "borderColor": colors[i],
+                "fill": false,
+                "data": data
+            })
+        })
+        .collect();
+    let json = json!({"labels": labels,
+    "datasets": datasets})
+    .to_string();
+    Ok(HttpResponse::Ok().content_type("text/json").body(json))
+}
 
-        App::new()
-            .data(tera)
-            .wrap(middleware::Logger::default()) // enable logger
-            .service(web::resource("/").route(web::get().to(index)))
-            .service(web::resource("/graph.json").route(web::get().to(graph_json)))
-            .service(actix_files::Files::new("/static", "static").show_files_listing())
-    })
-    .bind("127.0.0.1:8000")?
-    .run()
+fn db_revision_history_for_file(
+    conn: &Connection,
+    table: &str,
+    columns: &[&str],
+    config_file: &str,
+) -> rusqlite::Result<Vec<(u32, Vec<f64>)>> {
+    let column_str = columns
+        .iter()
+        .format_with(",", |v, f| f(&format_args!("AVG({})", v)));
+    let mut stmt = conn.prepare(&format!(
+        "SELECT revision, {} FROM {} WHERE revision >= 800000 AND config_file LIKE ?1 GROUP BY revision ORDER BY revision",
+        column_str, table
+    ))?;
+    let results = stmt.query_map(&[config_file], |r| {
+        let mut stats = Vec::new();
+        for i in 0..columns.len() {
+            stats.push(r.get(i + 1)?);
+        }
+        Ok((r.get(0)?, stats))
+    })?;
+    Ok(results.filter_map(|r| r.ok()).collect())
 }
 
 #[derive(Debug)]
@@ -170,59 +188,127 @@ struct IniRow {
     draw_time: f64,
     memory: f64,
 }
-/*
-fn get_csb_runs(
-    conn: &Connection,
-    revision: u32,
-) -> rusqlite::Result<HashMap<String, Vec<(f64, f64)>>> {
-    let mut stmt = conn.prepare(
-        "SELECT config_file, player_total_time, memory_peak FROM processed_csb WHERE revision=?1",
-    )?;
-    let runs = stmt.query_map(&[&revision], |row| {
-        let name: String = row.get(0)?;
-        let name = name.split('\\').last().unwrap_or(&name);
-        Ok(CsbRow {
-            name: name.to_string(),
-            time: row.get(1)?,
-            memory: row.get(2)?,
-        })
-    })?;
 
-    let mut results = HashMap::new();
-    for run in runs {
-        if let Ok(run) = run {
-            let list = results.entry(run.name).or_insert(vec![]);
-            list.push((run.time, run.memory));
+fn get_csb_runs_cmp(
+    conn: &Connection,
+    revision1: u32,
+    revision2: u32,
+) -> rusqlite::Result<Vec<CsbTest>> {
+    let results1 = get_csb_runs(conn, revision1)?;
+    let results2 = get_csb_runs(conn, revision2)?;
+
+    let mut results = Vec::new();
+    for (name, r) in results1 {
+        if let Some(r2) = results2.get(&name) {
+            results.push(CsbTest {
+                name: r.name,
+                time0: r.time,
+                time1: r2.time,
+                time_change: to_rel_change(r.time, r2.time),
+                memory0: r.memory,
+                memory1: r2.memory,
+                memory_change: to_rel_change(r.memory, r2.memory),
+            });
         }
     }
-    return Ok(results);
+    results.sort_by(|r1, r2| r1.name.cmp(&r2.name));
+    Ok(results)
 }
 
-fn get_ini_runs(
-    conn: &Connection,
-    revision: u32,
-) -> rusqlite::Result<HashMap<String, Vec<(f64, f64, f64)>>> {
+fn get_csb_runs(conn: &Connection, revision: u32) -> rusqlite::Result<HashMap<String, CsbRow>> {
     let mut stmt = conn.prepare(
-        "SELECT config_file, cutting_time, draw_time, memory_peak FROM processed_ini WHERE revision=?1",
+        "SELECT config_file, AVG(player_total_time), AVG(memory_peak) FROM processed_csb WHERE revision=?1 GROUP BY config_file",
     )?;
-    let runs = stmt.query_map(&[&revision], |row| {
-        let name: String = row.get(0)?;
-        let name = name.split('\\').last().unwrap_or(&name);
-        Ok(IniRow {
-            name: name.to_string(),
-            cut_time: row.get(1)?,
-            draw_time: row.get(2)?,
-            memory: row.get(3)?,
-        })
-    })?;
+    let result = HashMap::from_iter(
+        stmt.query_map(&[&revision], |row| {
+            let name: String = row.get(0)?;
+            let name = name.split('\\').last().unwrap_or(&name);
+            Ok(CsbRow {
+                name: name.to_string(),
+                time: row.get(1)?,
+                memory: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok().map(|r| (r.name.clone(), r))),
+    );
+    Ok(result)
+}
 
-    let mut results = HashMap::new();
-    for run in runs {
-        if let Ok(run) = run {
-            let list = results.entry(run.name).or_insert(vec![]);
-            list.push((run.cut_time, run.draw_time, run.memory));
+fn get_ini_runs_cmp(
+    conn: &Connection,
+    revision1: u32,
+    revision2: u32,
+) -> rusqlite::Result<Vec<IniTest>> {
+    let results1 = get_ini_runs(conn, revision1)?;
+    let results2 = get_ini_runs(conn, revision2)?;
+
+    let mut results = Vec::new();
+    for (name, r) in results1 {
+        if let Some(r2) = results2.get(&name) {
+            results.push(IniTest {
+                name: r.name,
+                cut_time0: r.cut_time,
+                cut_time1: r2.cut_time,
+                cut_time_change: to_rel_change(r.cut_time, r2.cut_time),
+                draw_time0: r.draw_time,
+                draw_time1: r2.draw_time,
+                draw_time_change: to_rel_change(r.draw_time, r2.draw_time),
+                memory0: r.memory,
+                memory1: r2.memory,
+                memory_change: to_rel_change(r.memory, r2.memory),
+            });
         }
     }
-    return Ok(results);
+    results.sort_by(|r1, r2| r1.name.cmp(&r2.name));
+
+    Ok(results)
 }
-*/
+
+fn get_ini_runs(conn: &Connection, revision: u32) -> rusqlite::Result<HashMap<String, IniRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT config_file, AVG(cutting_time), AVG(draw_time), AVG(memory_peak) FROM processed_ini WHERE revision=?1 GROUP BY config_file",
+    )?;
+    let result = HashMap::from_iter(
+        stmt.query_map(&[&revision], |row| {
+            let name: String = row.get(0)?;
+            let name = name.split('\\').last().unwrap_or(&name);
+            Ok(IniRow {
+                name: name.to_string(),
+                cut_time: row.get(1)?,
+                draw_time: row.get(2)?,
+                memory: row.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok().map(|r| (r.name.clone(), r))),
+    );
+    Ok(result)
+}
+
+fn to_rel_change(t1: f64, t2: f64) -> f64 {
+    if t1 > t2 {
+        t2 / t1 - 1.0
+    } else {
+        1.0 - t1 / t2
+    }
+}
+
+fn main() -> std::io::Result<()> {
+    //std::env::set_var("RUST_LOG", "actix_web=info");
+    env_logger::init();
+
+    HttpServer::new(|| {
+        let tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+        let conn = Connection::open("cutsim-testreport.db").unwrap();
+
+        App::new()
+            .data(tera)
+            .data(conn)
+            .wrap(middleware::Logger::default()) // enable logger
+            .service(web::resource("/").route(web::get().to(index)))
+            .service(web::resource("/csb_graph.json").route(web::get().to(csb_graph_json)))
+            .service(web::resource("/ini_graph.json").route(web::get().to(ini_graph_json)))
+            .service(actix_files::Files::new("/static", "static").show_files_listing())
+    })
+    .bind("127.0.0.1:8000")?
+    .run()
+}
