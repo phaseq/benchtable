@@ -44,7 +44,7 @@ fn index(
     let second_revision = query
         .r1
         .unwrap_or_else(|| db_latest_revision(&conn, "processed_csb").unwrap());
-    let first_revision = query.r2.unwrap_or(second_revision - 1000);
+    let first_revision = query.r2.unwrap_or(second_revision - 2000);
     let sort = query.sort.clone().unwrap_or("cut time".to_string());
 
     let csb_order_by = match sort.as_ref() {
@@ -87,7 +87,9 @@ fn index(
     context.insert("sort", &sort);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
-    let tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+    let mut tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+    tmpl.register_function("relative_change", tera_relative_change());
+    tmpl.register_function("to_color", tera_to_color());
     let s = tmpl
         .render("index.html", &context)
         .map_err(|e| error::ErrorInternalServerError(format!("{:?}", e)))?;
@@ -179,13 +181,55 @@ fn db_revision_comparison_ini(
 }
 
 fn to_rel_change(t1: f64, t2: f64) -> f64 {
-    if t1.is_nan() || t2.is_nan() || t1 == 0.0 || t2 == 0.0 {
-        0.0
-    } else if t1 > t2 {
+    if t1 > t2 {
         t2 / t1 - 1.0
     } else {
         1.0 - t1 / t2
     }
+}
+
+fn tera_relative_change() -> tera::GlobalFn {
+    Box::new(move |args| -> tera::Result<tera::Value> {
+        match args.get("val") {
+            Some(val) => match tera::from_value::<f64>(val.clone()) {
+                Ok(v) => {
+                    let s = if v.is_nan() || v == -1.0 {
+                        "?".to_string()
+                    } else if v > 0.0 {
+                        format!("+{:.1}%", 100.0 * v)
+                    } else {
+                        format!("{:.1}%", 100.0 * v)
+                    };
+                    Ok(tera::to_value(s).unwrap())
+                }
+                Err(_) => Ok("?".into()),
+            },
+            None => Err("oops".into()),
+        }
+    })
+}
+
+fn tera_to_color() -> tera::GlobalFn {
+    Box::new(move |args| -> tera::Result<tera::Value> {
+        match args.get("val") {
+            Some(val) => match tera::from_value::<f64>(val.clone()) {
+                Ok(v) => {
+                    let s = if v.is_nan() || v == -1.0 {
+                        "#f00"
+                    } else if v > 0.05 {
+                        "#f00"
+                    } else if v < -0.05 {
+                        "#0a0"
+                    } else {
+                        "#000"
+                    };
+                    Ok(tera::to_value(s).unwrap())
+                }
+                Err(_) => Ok("#f00".into()),
+            },
+            None => Err("oops".into()),
+        }
+    })
 }
 
 #[derive(Deserialize)]

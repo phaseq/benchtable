@@ -241,35 +241,22 @@
                         <summary>{{ test.name }}</summary>
                     </details>
                 </th>
-                <td>time: <span style="color:
-            {% if test.time_change < -0.05 %}
-                #0a0
-            {% elif test.time_change > 0.05 %}
-                #f00
-            {% else %}
-                #000
-            {% endif %}
-            ">{% if test.time_change > 0 %}+{% endif %}{{ test.time_change * 100 | round(precision=0) }}%</span></td>
-                <td>mem: <span style="color:
-            {% if test.memory_change < -0.05 %}
-                #0a0
-            {% elif test.memory_change > 0.05 %}
-                #f00
-            {% else %}
-                #000
-            {% endif %}
-            ">{% if test.memory_change > 0 %}+{% endif %}{{ test.memory_change * 100 | round(precision=0) }}%</span>
+                <td>time: <span style="color: {{ to_color(val=test.time_change) }}">
+                        {{ relative_change(val=test.time_change) }}</span>
+                </td>
+                <td>mem: <span style="color: {{ to_color(val=test.memory_change) }}">
+                        {{ relative_change(val=test.memory_change) }}</span>
                 </td>
             </tr>
             <tr style="display:none">
                 <td>time:</td>
-                <td>{{ test.time0 }}s</td>
-                <td>{{ test.time1 }}s</td>
+                <td>{{ test.time0 | round(precision=2) }} s</td>
+                <td>{{ test.time1 | round(precision=2) }} s</td>
             </tr>
             <tr style="display:none">
                 <td>mem:</td>
-                <td>{{ test.memory0 }} MB</td>
-                <td>{{ test.memory1 }} MB</td>
+                <td>{{ test.memory0 | round(precision=0) }} MB</td>
+                <td>{{ test.memory1 | round(precision=0) }} MB</td>
             </tr>
             <tr style="display:none">
                 <td colspan="3" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>
@@ -296,53 +283,30 @@
                         <summary>{{ test.name }}</summary>
                     </details>
                 </th>
-                <td>cut: <span
-                        style="color:
-            {% if test.cut_time_change < -0.05 %}
-                #0a0
-            {% elif test.cut_time_change > 0.05 %}
-                #f00
-            {% else %}
-                #000
-            {% endif %}
-            ">{% if test.cut_time_change > 0 %}+{% endif %}{{ test.cut_time_change * 100 | round(precision=0) }}%</span></td>
-                <td>draw: <span
-                        style="color:
-            {% if test.draw_time_change < -0.05 %}
-                #0a0
-            {% elif test.draw_time_change > 0.05 %}
-                #f00
-            {% else %}
-                #000
-            {% endif %}
-            ">{% if test.draw_time_change > 0 %}+{% endif %}{{ test.draw_time_change * 100 | round(precision=0) }}%</span></td>
-                <td>mem: <span style="color:
-            {% if test.memory_change < -0.05 %}
-                #0a0
-            {% elif test.memory_change > 0.05 %}
-                #f00
-            {% else %}
-                #000
-            {% endif %}
-            ">{% if test.memory_change > 0 %}+{% endif %}{{ test.memory_change * 100 | round(precision=0) }}%</span>
+                <td>cut: <span style="color: {{ to_color(val=test.cut_time_change) }}">
+                        {{ relative_change(val=test.cut_time_change) }}</span></td>
+                <td>draw: <span style="color: {{ to_color(val=test.draw_time_change) }}">
+                        {{ relative_change(val=test.draw_time_change) }}</span></td>
+                <td>mem: <span style="color: {{ to_color(val=test.memory_change) }}">
+                        {{ relative_change(val=test.memory_change) }}</span>
                 </td>
             </tr>
             <tr style="display:none">
                 <td>cut:</td>
-                <td>{{ test.cut_time0 }}s</td>
-                <td>{{ test.cut_time1 }}s</td>
+                <td>{{ test.cut_time0 | round(precision=2) }} s</td>
+                <td>{{ test.cut_time1 | round(precision=2) }} s</td>
                 <td></td>
             </tr>
             <tr style="display:none">
                 <td>draw:</td>
-                <td>{{ test.draw_time0 }}s</td>
-                <td>{{ test.draw_time1 }}s</td>
+                <td>{{ test.draw_time0 | round(precision=2) }} s</td>
+                <td>{{ test.draw_time1 | round(precision=2) }} s</td>
                 <td></td>
             </tr>
             <tr style="display:none">
                 <td>mem:</td>
-                <td>{{ test.memory0 }} MB</td>
-                <td>{{ test.memory1 }} MB</td>
+                <td>{{ test.memory0 | round(precision=0) }} MB</td>
+                <td>{{ test.memory1 | round(precision=0) }} MB</td>
                 <td></td>
             </tr>
             <tr style="display:none">
