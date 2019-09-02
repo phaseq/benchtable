@@ -3,6 +3,8 @@ use itertools::Itertools;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::iter::FromIterator;
 use tera::{compile_templates, Context};
 
 static LOWEST_REVISION: u32 = 800000;
@@ -230,45 +232,35 @@ fn tera_to_color() -> tera::GlobalFn {
 }
 
 #[derive(Deserialize)]
-struct GraphJsonRequest {
+struct FileGraphJsonRequest {
     id: String,
 }
-fn csb_graph_json(
+fn file_graph_json(
     conn: web::Data<Connection>,
-    query: web::Query<GraphJsonRequest>,
+    path: web::Path<(String,)>,
+    query: web::Query<FileGraphJsonRequest>,
 ) -> actix_web::Result<HttpResponse> {
-    graph_json(
-        conn,
-        "processed_csb",
-        &[("Memory", "memory_peak"), ("Run Time", "player_total_time")],
-        &query.id,
-    )
-}
-
-fn ini_graph_json(
-    conn: web::Data<Connection>,
-    query: web::Query<GraphJsonRequest>,
-) -> actix_web::Result<HttpResponse> {
-    graph_json(
-        conn,
-        "processed_ini",
-        &[
-            ("Memory", "memory_peak"),
-            ("Cut Time", "cutting_time"),
-            ("Draw Time", "draw_time"),
-        ],
-        &query.id,
-    )
-}
-
-fn graph_json(
-    conn: web::Data<Connection>,
-    table: &str,
-    columns: &[(&str, &str)],
-    config_file: &str,
-) -> actix_web::Result<HttpResponse> {
+    let (table, columns): (&str, Vec<(&str, &str)>) = match path.0.as_ref() {
+        "csb" => (
+            "processed_csb",
+            vec![("Memory", "memory_peak"), ("Run Time", "player_total_time")],
+        ),
+        "ini" => (
+            "processed_ini",
+            vec![
+                ("Memory", "memory_peak"),
+                ("Cut Time", "cutting_time"),
+                ("Draw Time", "draw_time"),
+            ],
+        ),
+        _ => {
+            return Ok(HttpResponse::BadRequest()
+                .content_type("text/html")
+                .body("unexpected table type"))
+        }
+    };
     let sql_columns: Vec<_> = columns.iter().map(|c| c.1).collect();
-    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, config_file)
+    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, &query.id)
         .map_err(error::ErrorInternalServerError)?;
     let labels: Vec<_> = db_data.iter().map(|r| r.0).collect();
     let colors = vec![
@@ -320,6 +312,123 @@ fn db_revision_history_for_file(
     Ok(results.filter_map(|r| r.ok()).collect())
 }
 
+#[derive(Deserialize)]
+struct AllGraphJsonRequest {
+    r0: u32,
+    r1: u32,
+}
+fn all_graph_json(
+    conn: web::Data<Connection>,
+    path: web::Path<(String,)>,
+    query: web::Query<AllGraphJsonRequest>,
+) -> actix_web::Result<HttpResponse> {
+    /*
+    red: "rgb(255, 99, 132)",
+    orange: "rgb(255, 159, 64)",
+    yellow: "rgb(255, 205, 86)",
+    green: "rgb(75, 192, 192)",
+    blue: "rgb(54, 162, 235)",
+    purple: "rgb(153, 102, 255)",
+    grey: "rgb(201, 203, 207)"*/
+    let info = match path.0.as_ref() {
+        "csb_memory" => (
+            "Memory",
+            "rgb(54, 162, 235)",
+            "processed_csb",
+            "memory_peak",
+        ),
+        "csb_play_time" => (
+            "Run Time",
+            "rgb(255, 205, 86)",
+            "processed_csb",
+            "player_total_time",
+        ),
+        "ini_memory" => (
+            "Memory",
+            "rgb(54, 162, 235)",
+            "processed_ini",
+            "memory_peak",
+        ),
+        "ini_cut_time" => (
+            "Cut Time",
+            "rgb(255, 159, 64)",
+            "processed_ini",
+            "cutting_time",
+        ),
+        "ini_draw_time" => (
+            "Draw Time",
+            "rgb(75, 192, 192)",
+            "processed_ini",
+            "draw_time",
+        ),
+        _ => {
+            return Ok(HttpResponse::BadRequest()
+                .content_type("text/html")
+                .body("unexpected table type"))
+        }
+    };
+    let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r0, query.r1)
+        .map_err(error::ErrorServiceUnavailable)?;
+
+    let mut labels = std::collections::HashSet::new();
+    let datasets: Vec<_> = db_data
+        .iter()
+        .map(|(test_name, runs)| {
+            let data: Vec<_> = runs
+                .iter()
+                .map(|r| {
+                    labels.insert(r.0);
+                    json!({"x": r.0, "y": r.1 / runs[0].1})
+                })
+                .collect();
+            let name = test_name
+                .split("\\testcases\\")
+                .last()
+                .unwrap_or(&test_name);
+            json!({
+                "label": name,
+                "backgroundColor": info.1,
+                "borderColor": info.1,
+                "fill": false,
+                "data": data
+            })
+        })
+        .collect();
+    let mut labels = Vec::from_iter(labels.iter());
+    labels.sort();
+    let json = json!({
+        "labels": labels,
+        "datasets": datasets
+    })
+    .to_string();
+
+    Ok(HttpResponse::Ok().content_type("text/html").body(json))
+}
+
+fn db_revision_history_for_files(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    low_revision: u32,
+    high_revision: u32,
+) -> rusqlite::Result<HashMap<String, Vec<(u32, f64)>>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT config_file, revision, AVG({}) FROM {} WHERE revision >= ?1 AND revision <= ?2 GROUP BY revision, config_file ORDER BY revision",
+        column, table
+    ))?;
+    let results = stmt
+        .query_map(&[low_revision, high_revision], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .filter_map(|r| r.ok());
+    let mut result = HashMap::new();
+    for (config_file, revision, stats) in results {
+        let t = result.entry(config_file).or_insert(Vec::new());
+        t.push((revision, stats));
+    }
+    Ok(result)
+}
+
 fn main() -> std::io::Result<()> {
     //std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
@@ -334,8 +443,8 @@ fn main() -> std::io::Result<()> {
             .data(conn)
             .wrap(middleware::Logger::default()) // enable logger
             .service(web::resource("/").route(web::get().to(index)))
-            .service(web::resource("/csb_graph.json").route(web::get().to(csb_graph_json)))
-            .service(web::resource("/ini_graph.json").route(web::get().to(ini_graph_json)))
+            .service(web::resource("/api/file/{type}").route(web::get().to(file_graph_json)))
+            .service(web::resource("/api/all/{type}").route(web::get().to(all_graph_json)))
             .service(actix_files::Files::new("/static", "static").show_files_listing())
     })
     .bind("127.0.0.1:8000")?
