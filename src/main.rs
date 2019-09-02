@@ -46,8 +46,8 @@ fn index(
     let revisions =
         db_all_revisions(&conn, "processed_csb").map_err(error::ErrorInternalServerError)?;
 
+    let first_revision = query.r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
     let second_revision = query.r2.unwrap_or_else(|| *revisions.last().unwrap());
-    let first_revision = query.r1.unwrap_or(second_revision - 2000);
     let sort = query.sort.clone().unwrap_or("cut time".to_string());
 
     let (csb_tests, ini_tests) =
