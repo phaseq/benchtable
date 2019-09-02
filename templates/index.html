@@ -214,13 +214,17 @@
 <body>
     <form>
         Revision range:
-        <input name="r0" value="{{ revision_low }}" />
-        <input name="r1" value="{{ revision_high }}" />
+        <select name="r1">
+            {% for r in revisions %}<option{% if r == revision_low %} selected{%endif%}>{{ r }}</option>{% endfor %}
+        </select>
+        <select name="r2">
+            {% for r in revisions %}<option{% if r == revision_high %} selected{%endif%}>{{ r }}</option>{% endfor %}
+        </select>
         Sort by: <select name="sort">
-            <option{% if sort == "name" %} selected {%endif%}>name</option>
-                <option{% if sort == "cut time" %} selected {%endif%}>cut time</option>
-                    <option{% if sort == "draw time" %} selected {%endif%}>draw time</option>
-                        <option{% if sort == "memory" %} selected {%endif%}>memory</option>
+            <option{% if sort == "name" %} selected{%endif%}>name</option>
+                <option{% if sort == "cut time" %} selected{%endif%}>cut time</option>
+                    <option{% if sort == "draw time" %} selected{%endif%}>draw time</option>
+                        <option{% if sort == "memory" %} selected{%endif%}>memory</option>
         </select>
         <input type="submit" value="Ok" />
     </form>

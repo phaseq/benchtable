@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tera::{compile_templates, Context};
 
+static LOWEST_REVISION: u32 = 800000;
+
 #[derive(Serialize)]
 struct CsbTest {
     name: String,
@@ -37,14 +39,15 @@ struct IndexRequest {
     sort: Option<String>,
 }
 fn index(
-    //tmpl: web::Data<tera::Tera>,
+    tmpl: web::Data<tera::Tera>,
     conn: web::Data<Connection>,
     query: web::Query<IndexRequest>,
 ) -> actix_web::Result<HttpResponse> {
-    let second_revision = query
-        .r1
-        .unwrap_or_else(|| db_latest_revision(&conn, "processed_csb").unwrap());
-    let first_revision = query.r2.unwrap_or(second_revision - 2000);
+    let revisions =
+        db_all_revisions(&conn, "processed_csb").map_err(error::ErrorInternalServerError)?;
+
+    let second_revision = query.r2.unwrap_or_else(|| *revisions.last().unwrap());
+    let first_revision = query.r1.unwrap_or(second_revision - 2000);
     let sort = query.sort.clone().unwrap_or("cut time".to_string());
 
     let (csb_tests, ini_tests) =
@@ -55,24 +58,28 @@ fn index(
     context.insert("title", "CutSim benchmarks");
     context.insert("revision_low", &first_revision);
     context.insert("revision_high", &second_revision);
+    context.insert("revisions", &revisions);
     context.insert("sort", &sort);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
-    let mut tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
-    tmpl.register_function("relative_change", tera_relative_change());
-    tmpl.register_function("to_color", tera_to_color());
+    //let mut tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+    //tmpl.register_function("relative_change", tera_relative_change());
+    //tmpl.register_function("to_color", tera_to_color());
     let s = tmpl
         .render("index.html", &context)
         .map_err(error::ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().content_type("text/html").body(s))
 }
 
-fn db_latest_revision(conn: &Connection, table: &str) -> rusqlite::Result<u32> {
+fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>> {
     Ok(conn
-        .prepare(&format!("SELECT MAX(revision) FROM {}", table))?
+        .prepare(&format!(
+            "SELECT DISTINCT revision FROM {} WHERE revision >= {} ORDER BY revision",
+            table, LOWEST_REVISION
+        ))?
         .query_map(rusqlite::NO_PARAMS, |row| Ok(row.get(0)?))?
-        .next()
-        .unwrap()?)
+        .filter_map(|r| r.ok())
+        .collect())
 }
 
 fn db_revision_comparison(
@@ -108,9 +115,9 @@ fn db_revision_comparison_csb(
         "SELECT a.config_file, ",
         "AVG(a.player_total_time), AVG(b.player_total_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_csb a, processed_csb b ",
-        "WHERE a.config_file = b.config_file ",
-        "AND a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+        "FROM processed_csb b ",
+        "LEFT JOIN processed_csb a ON a.config_file = b.config_file ",
+        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
         + &format!("ORDER BY {}", order_by);
@@ -145,9 +152,9 @@ fn db_revision_comparison_ini(
         "AVG(a.cutting_time), AVG(b.cutting_time), ",
         "AVG(a.draw_time), AVG(b.draw_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_ini a, processed_ini b ",
-        "WHERE a.config_file = b.config_file ",
-        "AND a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
+        "FROM processed_ini b ",
+        "LEFT JOIN processed_ini a ON a.config_file = b.config_file ",
+        "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
         + &format!("ORDER BY {}", order_by);
@@ -300,8 +307,8 @@ fn db_revision_history_for_file(
         .iter()
         .format_with(",", |v, f| f(&format_args!("AVG({})", v)));
     let mut stmt = conn.prepare_cached(&format!(
-        "SELECT revision, {} FROM {} WHERE config_file LIKE ?1 AND revision >= 800000 GROUP BY revision ORDER BY revision",
-        column_str, table
+        "SELECT revision, {} FROM {} WHERE config_file LIKE ?1 AND revision >= {} GROUP BY revision ORDER BY revision",
+        column_str, table, LOWEST_REVISION
     ))?;
     let results = stmt.query_map(&[config_file], |r| {
         let mut stats = Vec::new();
@@ -318,12 +325,12 @@ fn main() -> std::io::Result<()> {
     env_logger::init();
 
     HttpServer::new(|| {
-        //let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
-        //tera.register_function("relative_change", tera_relative_change());
-        //tera.register_function("to_color", tera_to_color());
+        let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
+        tera.register_function("relative_change", tera_relative_change());
+        tera.register_function("to_color", tera_to_color());
         let conn = Connection::open("cutsim-testreport.db").unwrap();
         App::new()
-            //.data(tera)
+            .data(tera)
             .data(conn)
             .wrap(middleware::Logger::default()) // enable logger
             .service(web::resource("/").route(web::get().to(index)))
