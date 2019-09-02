@@ -363,7 +363,7 @@ fn all_graph_json(
         ),
         _ => {
             return Ok(HttpResponse::BadRequest()
-                .content_type("text/html")
+                .content_type("text/json")
                 .body("unexpected table type"))
         }
     };
@@ -402,7 +402,7 @@ fn all_graph_json(
     })
     .to_string();
 
-    Ok(HttpResponse::Ok().content_type("text/html").body(json))
+    Ok(HttpResponse::Ok().content_type("text/json").body(json))
 }
 
 fn db_revision_history_for_files(
@@ -442,6 +442,7 @@ fn main() -> std::io::Result<()> {
             .data(tera)
             .data(conn)
             .wrap(middleware::Logger::default()) // enable logger
+            .wrap(middleware::Compress::default())
             .service(web::resource("/").route(web::get().to(index)))
             .service(web::resource("/api/file/{type}").route(web::get().to(file_graph_json)))
             .service(web::resource("/api/all/{type}").route(web::get().to(all_graph_json)))
