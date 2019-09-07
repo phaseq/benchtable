@@ -1,13 +1,23 @@
-use actix_web::{error, middleware, web, App, HttpResponse, HttpServer};
+#![feature(proc_macro_hygiene, decl_macro)]
+#![allow(clippy::float_cmp)]
 use itertools::Itertools;
+use rocket::http::{RawStr, Status};
+use rocket::response::content;
+use rocket::response::status;
+use rocket_contrib::serve::StaticFiles;
+use rocket_contrib::templates::Template;
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use tera::{compile_templates, Context};
+use tera::Context;
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate rocket_contrib;
 
-static LOWEST_REVISION: u32 = 800000;
+static LOWEST_REVISION: u32 = 800_000;
 
 #[derive(Serialize)]
 struct CsbTest {
@@ -34,27 +44,28 @@ struct IniTest {
     memory_change: f64,
 }
 
-#[derive(Deserialize)]
-struct IndexRequest {
+#[database("sqlite_db")]
+struct SqliteDb(rusqlite::Connection);
+
+#[get("/?<r1>&<r2>&<sort>")]
+fn index(
+    conn: SqliteDb,
     r1: Option<u32>,
     r2: Option<u32>,
-    sort: Option<String>,
-}
-fn index(
-    tmpl: web::Data<tera::Tera>,
-    conn: web::Data<Connection>,
-    query: web::Query<IndexRequest>,
-) -> actix_web::Result<HttpResponse> {
-    let revisions =
-        db_all_revisions(&conn, "processed_csb").map_err(error::ErrorInternalServerError)?;
+    sort: Option<&RawStr>,
+) -> Result<Template, status::Custom<String>> {
+    let revisions = db_all_revisions(&conn, "processed_csb")
+        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
-    let first_revision = query.r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
-    let second_revision = query.r2.unwrap_or_else(|| *revisions.last().unwrap());
-    let sort = query.sort.clone().unwrap_or("cut time".to_string());
+    let first_revision = r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
+    let second_revision = r2.unwrap_or_else(|| *revisions.last().unwrap());
+    let sort = sort
+        .and_then(|s| s.url_decode().ok())
+        .unwrap_or_else(|| "cut time".to_string());
 
     let (csb_tests, ini_tests) =
         db_revision_comparison(&conn, first_revision, second_revision, &sort)
-            .map_err(error::ErrorInternalServerError)?;
+            .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
     let mut context = Context::new();
     context.insert("title", "CutSim benchmarks");
@@ -64,13 +75,7 @@ fn index(
     context.insert("sort", &sort);
     context.insert("csb_tests", &csb_tests);
     context.insert("ini_tests", &ini_tests);
-    //let mut tmpl = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
-    //tmpl.register_function("relative_change", tera_relative_change());
-    //tmpl.register_function("to_color", tera_to_color());
-    let s = tmpl
-        .render("index.html", &context)
-        .map_err(error::ErrorInternalServerError)?;
-    Ok(HttpResponse::Ok().content_type("text/html").body(s))
+    Ok(Template::render("index", &context))
 }
 
 fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>> {
@@ -79,7 +84,7 @@ fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>
             "SELECT DISTINCT revision FROM {} WHERE revision >= {} ORDER BY revision",
             table, LOWEST_REVISION
         ))?
-        .query_map(rusqlite::NO_PARAMS, |row| Ok(row.get(0)?))?
+        .query_map(&[], |row| row.get(0))?
         .filter_map(|r| r.ok())
         .collect())
 }
@@ -127,17 +132,17 @@ fn db_revision_comparison_csb(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0)?;
+            let name: String = row.get(0);
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            Ok(CsbTest {
+            CsbTest {
                 name: name.to_string(),
-                time0: row.get(1)?,
-                time1: row.get(2)?,
-                time_change: to_rel_change(row.get(1)?, row.get(2)?),
-                memory0: row.get(3)?,
-                memory1: row.get(4)?,
-                memory_change: to_rel_change(row.get(3)?, row.get(4)?),
-            })
+                time0: row.get(1),
+                time1: row.get(2),
+                time_change: to_rel_change(row.get(1), row.get(2)),
+                memory0: row.get(3),
+                memory1: row.get(4),
+                memory_change: to_rel_change(row.get(3), row.get(4)),
+            }
         })?
         .filter_map(|r| r.ok())
         .collect())
@@ -164,20 +169,20 @@ fn db_revision_comparison_ini(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0)?;
+            let name: String = row.get(0);
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            Ok(IniTest {
+            IniTest {
                 name: name.to_string(),
-                cut_time0: row.get(1)?,
-                cut_time1: row.get(2)?,
-                cut_time_change: to_rel_change(row.get(1)?, row.get(2)?),
-                draw_time0: row.get(3)?,
-                draw_time1: row.get(4)?,
-                draw_time_change: to_rel_change(row.get(3)?, row.get(4)?),
-                memory0: row.get(5)?,
-                memory1: row.get(6)?,
-                memory_change: to_rel_change(row.get(5)?, row.get(6)?),
-            })
+                cut_time0: row.get(1),
+                cut_time1: row.get(2),
+                cut_time_change: to_rel_change(row.get(1), row.get(2)),
+                draw_time0: row.get(3),
+                draw_time1: row.get(4),
+                draw_time_change: to_rel_change(row.get(3), row.get(4)),
+                memory0: row.get(5),
+                memory1: row.get(6),
+                memory_change: to_rel_change(row.get(5), row.get(6)),
+            }
         })?
         .filter_map(|r| r.ok())
         .collect())
@@ -213,9 +218,7 @@ fn tera_to_color() -> tera::GlobalFn {
         match args.get("val") {
             Some(val) => match tera::from_value::<f64>(val.clone()) {
                 Ok(v) => {
-                    let s = if v.is_nan() || v == -1.0 {
-                        "#f00"
-                    } else if v > 0.05 {
+                    let s = if v.is_nan() || v == -1.0 || v > 0.05 {
                         "#f00"
                     } else if v < -0.05 {
                         "#0a0"
@@ -231,16 +234,13 @@ fn tera_to_color() -> tera::GlobalFn {
     })
 }
 
-#[derive(Deserialize)]
-struct FileGraphJsonRequest {
-    id: String,
-}
-fn file_graph_json(
-    conn: web::Data<Connection>,
-    path: web::Path<(String,)>,
-    query: web::Query<FileGraphJsonRequest>,
-) -> actix_web::Result<HttpResponse> {
-    let (table, columns): (&str, Vec<(&str, &str)>) = match path.0.as_ref() {
+#[get("/file/<file_type>?<id>")]
+fn api_file_graph_json(
+    conn: SqliteDb,
+    file_type: &RawStr,
+    id: &RawStr,
+) -> Result<content::Json<String>, status::Custom<String>> {
+    let (table, columns): (&str, Vec<(&str, &str)>) = match file_type.as_str() {
         "csb" => (
             "processed_csb",
             vec![("Memory", "memory_peak"), ("Run Time", "player_total_time")],
@@ -254,14 +254,24 @@ fn file_graph_json(
             ],
         ),
         _ => {
-            return Ok(HttpResponse::BadRequest()
-                .content_type("text/html")
-                .body("unexpected table type"))
+            return Err(status::Custom(
+                Status::BadRequest,
+                "unexpected table type".to_string(),
+            ));
+        }
+    };
+    let id = match id.url_decode() {
+        Ok(id) => id,
+        _ => {
+            return Err(status::Custom(
+                Status::BadRequest,
+                "couldn't decode id".to_string(),
+            ))
         }
     };
     let sql_columns: Vec<_> = columns.iter().map(|c| c.1).collect();
-    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, &query.id)
-        .map_err(error::ErrorInternalServerError)?;
+    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, &id)
+        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
     let labels: Vec<_> = db_data.iter().map(|r| r.0).collect();
     let colors = vec![
         "rgb(54, 162, 235)",
@@ -285,8 +295,9 @@ fn file_graph_json(
             })
         })
         .collect();
-    let json = json!({"labels": labels, "datasets": datasets}).to_string();
-    Ok(HttpResponse::Ok().content_type("text/json").body(json))
+    Ok(content::Json(
+        json!({"labels": labels, "datasets": datasets}).to_string(),
+    ))
 }
 
 fn db_revision_history_for_file(
@@ -302,26 +313,23 @@ fn db_revision_history_for_file(
         "SELECT revision, {} FROM {} WHERE config_file LIKE ?1 AND revision >= {} GROUP BY revision ORDER BY revision",
         column_str, table, LOWEST_REVISION
     ))?;
-    let results = stmt.query_map(&[config_file], |r| {
+    let results = stmt.query_map(&[&config_file], |r| {
         let mut stats = Vec::new();
         for i in 0..columns.len() {
-            stats.push(r.get(i + 1)?);
+            stats.push(r.get(i + 1));
         }
-        Ok((r.get(0)?, stats))
+        (r.get(0), stats)
     })?;
     Ok(results.filter_map(|r| r.ok()).collect())
 }
 
-#[derive(Deserialize)]
-struct AllGraphJsonRequest {
+#[get("/all/<file_type>?<r0>&<r1>")]
+fn api_all_graph_json(
+    conn: SqliteDb,
+    file_type: &RawStr,
     r0: u32,
     r1: u32,
-}
-fn all_graph_json(
-    conn: web::Data<Connection>,
-    path: web::Path<(String,)>,
-    query: web::Query<AllGraphJsonRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<content::Json<String>, status::Custom<String>> {
     /*
     red: "rgb(255, 99, 132)",
     orange: "rgb(255, 159, 64)",
@@ -330,7 +338,7 @@ fn all_graph_json(
     blue: "rgb(54, 162, 235)",
     purple: "rgb(153, 102, 255)",
     grey: "rgb(201, 203, 207)"*/
-    let info = match path.0.as_ref() {
+    let info = match file_type.as_str() {
         "csb_memory" => (
             "Memory",
             "rgb(54, 162, 235)",
@@ -362,13 +370,14 @@ fn all_graph_json(
             "draw_time",
         ),
         _ => {
-            return Ok(HttpResponse::BadRequest()
-                .content_type("text/json")
-                .body("unexpected table type"))
+            return Err(status::Custom(
+                Status::BadRequest,
+                "unexpected table type".to_string(),
+            ));
         }
     };
-    let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r0, query.r1)
-        .map_err(error::ErrorServiceUnavailable)?;
+    let db_data = db_revision_history_for_files(&conn, info.2, info.3, r0, r1)
+        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
     let mut labels = std::collections::HashSet::new();
     let datasets: Vec<_> = db_data
@@ -396,13 +405,13 @@ fn all_graph_json(
         .collect();
     let mut labels = Vec::from_iter(labels.iter());
     labels.sort();
-    let json = json!({
-        "labels": labels,
-        "datasets": datasets
-    })
-    .to_string();
-
-    Ok(HttpResponse::Ok().content_type("text/json").body(json))
+    Ok(content::Json(
+        json!({
+            "labels": labels,
+            "datasets": datasets
+        })
+        .to_string(),
+    ))
 }
 
 fn db_revision_history_for_files(
@@ -417,37 +426,32 @@ fn db_revision_history_for_files(
         column, table
     ))?;
     let results = stmt
-        .query_map(&[low_revision, high_revision], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        .query_map(&[&low_revision, &high_revision], |r| {
+            (r.get(0), r.get(1), r.get(2))
         })?
         .filter_map(|r| r.ok());
     let mut result = HashMap::new();
     for (config_file, revision, stats) in results {
-        let t = result.entry(config_file).or_insert(Vec::new());
+        let t = result.entry(config_file).or_insert_with(Vec::new);
         t.push((revision, stats));
     }
     Ok(result)
 }
 
-fn main() -> std::io::Result<()> {
-    //std::env::set_var("RUST_LOG", "actix_web=info");
-    env_logger::init();
-
-    HttpServer::new(|| {
-        let mut tera = compile_templates!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*"));
-        tera.register_function("relative_change", tera_relative_change());
-        tera.register_function("to_color", tera_to_color());
-        let conn = Connection::open("cutsim-testreport.db").unwrap();
-        App::new()
-            .data(tera)
-            .data(conn)
-            .wrap(middleware::Logger::default()) // enable logger
-            .wrap(middleware::Compress::default())
-            .service(web::resource("/").route(web::get().to(index)))
-            .service(web::resource("/api/file/{type}").route(web::get().to(file_graph_json)))
-            .service(web::resource("/api/all/{type}").route(web::get().to(all_graph_json)))
-            .service(actix_files::Files::new("/static", "static").show_files_listing())
-    })
-    .bind("127.0.0.1:8000")?
-    .run()
+fn main() {
+    rocket::ignite()
+        .attach(SqliteDb::fairing())
+        .attach(Template::custom(|engines| {
+            engines.tera.register_function("to_color", tera_to_color());
+            engines
+                .tera
+                .register_function("relative_change", tera_relative_change());
+        }))
+        .mount("/", routes![index])
+        .mount("/api", routes![api_file_graph_json, api_all_graph_json])
+        .mount(
+            "/static",
+            StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/static")),
+        )
+        .launch();
 }

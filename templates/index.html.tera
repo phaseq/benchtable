@@ -197,7 +197,7 @@
                     addGraph(node, data, true);
                 }
             };
-            var chartId = chartNode.getAttribute("data-chart-id");
+            var chartId = encodeURI(chartNode.getAttribute("data-chart-id"));
             if (chartId.includes(".csb")) {
                 xhttp.open("GET", "/api/file/csb?id=%" + chartId, true);
             } else {

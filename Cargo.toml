@@ -8,10 +8,9 @@ edition = "2018"
 
 [dependencies]
 itertools = "*"
-rusqlite = { version = ">= 0.20.0", features=["bundled"] }
+rusqlite = "*"
 tera = "*"
 serde = { version = "*", features=["derive"] }
 serde_json = "*"
-actix-web = "*"
-actix-files = "*"
-env_logger = "*"
+rocket = "*"
+rocket_contrib = { version = "*", features=["sqlite_pool", "tera_templates"] }
