@@ -2,9 +2,7 @@
 #![allow(clippy::float_cmp)]
 use itertools::Itertools;
 use rocket::http::{RawStr, Status};
-use rocket::response::content;
-use rocket::response::status;
-use rocket_contrib::serve::StaticFiles;
+use rocket::response::{content, status, NamedFile};
 use rocket_contrib::templates::Template;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -438,6 +436,16 @@ fn db_revision_history_for_files(
     Ok(result)
 }
 
+struct StaticFileDir(String);
+
+#[get("/<path..>")]
+fn static_file(
+    path: std::path::PathBuf,
+    static_file_dir: rocket::State<StaticFileDir>,
+) -> Option<NamedFile> {
+    NamedFile::open(std::path::Path::new(&static_file_dir.0).join(path)).ok()
+}
+
 fn main() {
     rocket::ignite()
         .attach(SqliteDb::fairing())
@@ -447,11 +455,19 @@ fn main() {
                 .tera
                 .register_function("relative_change", tera_relative_change());
         }))
+        .attach(rocket::fairing::AdHoc::on_attach(
+            "Static Files",
+            |rocket| {
+                let static_file_dir = rocket
+                    .config()
+                    .get_str("static_file_dir")
+                    .unwrap()
+                    .to_string();
+                Ok(rocket.manage(StaticFileDir(static_file_dir)))
+            },
+        ))
         .mount("/", routes![index])
         .mount("/api", routes![api_file_graph_json, api_all_graph_json])
-        .mount(
-            "/static",
-            StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/static")),
-        )
+        .mount("/static", routes![static_file])
         .launch();
 }

@@ -1,0 +1,5 @@
+[global]
+static_file_dir = "static/"
+
+[global.databases]
+sqlite_db = { url = "cutsim-testreport.db" }
