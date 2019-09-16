@@ -120,8 +120,8 @@ fn db_revision_comparison_csb(
         "SELECT a.config_file, ",
         "AVG(a.player_total_time), AVG(b.player_total_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_csb b ",
-        "LEFT JOIN processed_csb a ON a.config_file = b.config_file ",
+        "FROM processed_csb A ",
+        "INNER JOIN processed_csb b ON a.config_file = b.config_file ",
         "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
@@ -157,8 +157,8 @@ fn db_revision_comparison_ini(
         "AVG(a.cutting_time), AVG(b.cutting_time), ",
         "AVG(a.draw_time), AVG(b.draw_time), ",
         "AVG(a.memory_peak), AVG(b.memory_peak) ",
-        "FROM processed_ini b ",
-        "LEFT JOIN processed_ini a ON a.config_file = b.config_file ",
+        "FROM processed_ini a ",
+        "INNER JOIN processed_ini b ON a.config_file = b.config_file ",
         "WHERE a.revision=?1 AND b.revision=?2 GROUP BY a.config_file "
     )
     .to_string()
