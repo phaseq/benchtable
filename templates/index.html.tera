@@ -2,7 +2,7 @@
 <html>
 
 <head>
-	<title>{{ title }}</title>
+	<title>{{title}}</title>
 	<style>
 		body {
 			font-family: monospace;
@@ -275,10 +275,10 @@
 	<form>
 		Revision range:
 		<select name="r1">
-			{% for r in revisions %}<option{% if r == revision_low %} selected{%endif%}>{{ r }}</option>{% endfor %}
+			{% for r in revisions %}<option{% if r == revision_low %} selected{%endif%}>{{r}}</option>{% endfor %}
 		</select>
 		<select name="r2">
-			{% for r in revisions %}<option{% if r == revision_high %} selected{%endif%}>{{ r }}</option>{% endfor %}
+			{% for r in revisions %}<option{% if r == revision_high %} selected{%endif%}>{{r}}</option>{% endfor %}
 		</select>
 		Sort by: <select name="sort">
 			<option {% if sort == "name" %}selected{%endif%}>name</option>
@@ -295,37 +295,37 @@
 		<thead>
 			<tr>
 				<td></td>
-				<th>r{{ revision_low }}</th>
-				<th>r{{ revision_high }}</th>
+				<th>r{{revision_low}}</th>
+				<th>r{{revision_high}}</th>
 			</tr>
 		</thead>
 		<tbody>
 			{% for test in csb_tests %}
 			<tr data-field-start="true">
-				<th data-js-name="{{ test.name }}">
+				<th data-js-name="{{test.name}}">
 					<details class="toggle-table">
-						<summary>{{ test.name }}</summary>
+						<summary>{{test.name}}</summary>
 					</details>
 				</th>
-				<td>time: <span style="color: {{ to_color(val=test.time_change) }}">
-						{{ relative_change(val=test.time_change) }}</span>
+				<td>time: <span style="color: {{to_color(v1=test.time0, v2=test.time1)}}">
+						{{relative_change(v1=test.time0, v2=test.time1)}}</span>
 				</td>
-				<td>mem: <span style="color: {{ to_color(val=test.memory_change) }}">
-						{{ relative_change(val=test.memory_change) }}</span>
+				<td>mem: <span style="color: {{to_color(v1=test.memory0, v2=test.memory1)}}">
+						{{relative_change(v1=test.memory0, v2=test.memory1)}}</span>
 				</td>
 			</tr>
 			<tr style="display:none">
-				<th style="text-align: right">r{{ revision_low }}</th>
-				<td>{{ test.time0 | round(precision=2) }} s</td>
-				<td>{{ test.memory0 | round(precision=0) }} MB</td>
+				<th style="text-align: right">r{{revision_low}}</th>
+				<td>{{test.time0 | round(precision=2)}} s</td>
+				<td>{{test.memory0 | round(precision=0)}} MB</td>
 			</tr>
 			<tr style="display:none">
-				<th style="text-align: right">r{{ revision_high }}</th>
-				<td>{{ test.time1 | round(precision=2) }} s</td>
-				<td>{{ test.memory1 | round(precision=0) }} MB</td>
+				<th style="text-align: right">r{{revision_high}}</th>
+				<td>{{test.time1 | round(precision=2)}} s</td>
+				<td>{{test.memory1 | round(precision=0)}} MB</td>
 			</tr>
 			<tr style="display:none">
-				<td colspan="3" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>
+				<td colspan="3" class="chart" data-chart-id="{{test.name}}">&nbsp;</td>
 			</tr>
 			{% endfor %}
 		</tbody>
@@ -336,41 +336,41 @@
 		<thead>
 			<tr>
 				<td></td>
-				<th>r{{ revision_low }}</th>
-				<th>r{{ revision_high }}</th>
+				<th>r{{revision_low}}</th>
+				<th>r{{revision_high}}</th>
 				<th></th>
 			</tr>
 		</thead>
 		<tbody>
 			{% for test in ini_tests %}
 			<tr data-field-start="true">
-				<th data-js-name="{{ test.name }}">
+				<th data-js-name="{{test.name}}">
 					<details class="toggle-table">
-						<summary>{{ test.name }}</summary>
+						<summary>{{test.name}}</summary>
 					</details>
 				</th>
-				<td>cut: <span style="color: {{ to_color(val=test.cut_time_change) }}">
-						{{ relative_change(val=test.cut_time_change) }}</span></td>
-				<td>draw: <span style="color: {{ to_color(val=test.draw_time_change) }}">
-						{{ relative_change(val=test.draw_time_change) }}</span></td>
-				<td>mem: <span style="color: {{ to_color(val=test.memory_change) }}">
-						{{ relative_change(val=test.memory_change) }}</span>
+				<td>cut: <span style="color: {{to_color(v1=test.cut_time0, v2=test.cut_time1)}}">
+						{{relative_change(v1=test.cut_time0, v2=test.cut_time1)}}</span></td>
+				<td>draw: <span style="color: {{to_color(v1=test.draw_time0, v2=test.draw_time1)}}">
+						{{relative_change(v1=test.draw_time0, v2=test.draw_time1)}}</span></td>
+				<td>mem: <span style="color: {{to_color(v1=test.memory0, v2=test.memory1)}}">
+						{{relative_change(v1=test.memory0, v2=test.memory1)}}</span>
 				</td>
 			</tr>
 			<tr style="display:none">
-				<th style="text-align: right">r{{ revision_low }}:</th>
-				<td>{{ test.cut_time0 | round(precision=2) }} s</td>
-				<td>{{ test.draw_time0 | round(precision=2) }} s</td>
-				<td>{{ test.memory0 | round(precision=0) }} MB</td>
+				<th style="text-align: right">r{{revision_low}}:</th>
+				<td>{{test.cut_time0 | round(precision=2)}} s</td>
+				<td>{{test.draw_time0 | round(precision=2)}} s</td>
+				<td>{{test.memory0 | round(precision=0)}} MB</td>
 			</tr>
 			<tr style="display:none">
-				<th style="text-align: right">r{{ revision_high }}:</th>
-				<td>{{ test.cut_time1 | round(precision=2) }} s</td>
-				<td>{{ test.draw_time1 | round(precision=2) }} s</td>
-				<td>{{ test.memory1 | round(precision=0) }} MB</td>
+				<th style="text-align: right">r{{revision_high}}:</th>
+				<td>{{test.cut_time1 | round(precision=2)}} s</td>
+				<td>{{test.draw_time1 | round(precision=2)}} s</td>
+				<td>{{test.memory1 | round(precision=0)}} MB</td>
 			</tr>
 			<tr style="display:none">
-				<td colspan="4" class="chart" data-chart-id="{{ test.name }}">&nbsp;</td>
+				<td colspan="4" class="chart" data-chart-id="{{test.name}}">&nbsp;</td>
 			</tr>
 			{% endfor %}
 		</tbody>

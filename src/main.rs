@@ -22,10 +22,8 @@ struct CsbTest {
     name: String,
     time0: f64,
     time1: f64,
-    time_change: f64,
     memory0: f64,
     memory1: f64,
-    memory_change: f64,
 }
 
 #[derive(Serialize)]
@@ -33,13 +31,10 @@ struct IniTest {
     name: String,
     cut_time0: f64,
     cut_time1: f64,
-    cut_time_change: f64,
     draw_time0: f64,
     draw_time1: f64,
-    draw_time_change: f64,
     memory0: f64,
     memory1: f64,
-    memory_change: f64,
 }
 
 #[database("sqlite_db")]
@@ -136,10 +131,8 @@ fn db_revision_comparison_csb(
                 name: name.to_string(),
                 time0: row.get(1),
                 time1: row.get(2),
-                time_change: to_rel_change(row.get(1), row.get(2)),
                 memory0: row.get(3),
                 memory1: row.get(4),
-                memory_change: to_rel_change(row.get(3), row.get(4)),
             }
         })?
         .filter_map(|r| r.ok())
@@ -173,61 +166,66 @@ fn db_revision_comparison_ini(
                 name: name.to_string(),
                 cut_time0: row.get(1),
                 cut_time1: row.get(2),
-                cut_time_change: to_rel_change(row.get(1), row.get(2)),
                 draw_time0: row.get(3),
                 draw_time1: row.get(4),
-                draw_time_change: to_rel_change(row.get(3), row.get(4)),
                 memory0: row.get(5),
                 memory1: row.get(6),
-                memory_change: to_rel_change(row.get(5), row.get(6)),
             }
         })?
         .filter_map(|r| r.ok())
         .collect())
 }
 
-fn to_rel_change(t1: f64, t2: f64) -> f64 {
-    t2 / t1 - 1.0
-}
-
 fn tera_relative_change() -> tera::GlobalFn {
     Box::new(move |args| -> tera::Result<tera::Value> {
-        match args.get("val") {
-            Some(val) => match tera::from_value::<f64>(val.clone()) {
-                Ok(v) => {
-                    let s = if v.is_nan() || v == -1.0 {
-                        "?".to_string()
-                    } else if v > 0.0 {
-                        format!("+{:.1}%", 100.0 * v)
-                    } else {
-                        format!("{:.1}%", 100.0 * v)
-                    };
-                    Ok(tera::to_value(s).unwrap())
+        match (args.get("v1"), args.get("v2")) {
+            (Some(v1), Some(v2)) => {
+                match (
+                    tera::from_value::<f64>(v1.clone()),
+                    tera::from_value::<f64>(v2.clone()),
+                ) {
+                    (Ok(v1), Ok(v2)) => {
+                        let v = v2 / v1 - 1.0;
+                        let s = if v.is_nan() || v == -1.0 {
+                            "?".to_string()
+                        } else if v > 0.0 {
+                            format!("+{:.1}%", 100.0 * v)
+                        } else {
+                            format!("{:.1}%", 100.0 * v)
+                        };
+                        Ok(tera::to_value(s).unwrap())
+                    }
+                    _ => Ok("?".into()),
                 }
-                Err(_) => Ok("?".into()),
-            },
-            None => Err("oops".into()),
+            }
+            _ => Err("oops".into()),
         }
     })
 }
 
 fn tera_to_color() -> tera::GlobalFn {
     Box::new(move |args| -> tera::Result<tera::Value> {
-        match args.get("val") {
-            Some(val) => match tera::from_value::<f64>(val.clone()) {
-                Ok(v) => {
-                    let s = if v.is_nan() || v == -1.0 || v > 0.05 {
-                        "#f00"
-                    } else if v < -0.05 {
-                        "#0a0"
-                    } else {
-                        "#000"
-                    };
-                    Ok(tera::to_value(s).unwrap())
+        match (args.get("v1"), args.get("v2")) {
+            (Some(v1), Some(v2)) => {
+                match (
+                    tera::from_value::<f64>(v1.clone()),
+                    tera::from_value::<f64>(v2.clone()),
+                ) {
+                    (Ok(v1), Ok(v2)) => {
+                        let v = v2 / v1 - 1.0;
+                        let s = if v.is_nan() || v == -1.0 || v > 0.05 {
+                            "#f00"
+                        } else if v < -0.05 {
+                            "#0a0"
+                        } else {
+                            "#000"
+                        };
+                        Ok(tera::to_value(s).unwrap())
+                    }
+                    _ => Ok("?".into()),
                 }
-                Err(_) => Ok("#f00".into()),
-            },
-            None => Err("oops".into()),
+            }
+            _ => Err("oops".into()),
         }
     })
 }
@@ -277,7 +275,7 @@ fn api_file_graph_json(
         "rgb(75, 192, 192)",
     ];
     let datasets: Vec<_> = columns
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(i, (title, _))| {
             let data: Vec<_> = db_data
@@ -308,7 +306,13 @@ fn db_revision_history_for_file(
         .iter()
         .format_with(",", |v, f| f(&format_args!("AVG({})", v)));
     let mut stmt = conn.prepare_cached(&format!(
-        "SELECT revision, {} FROM {} WHERE config_file LIKE ?1 AND revision >= {} GROUP BY revision ORDER BY revision",
+        concat!(
+            "SELECT revision, {} FROM {} ",
+            "WHERE config_file LIKE ?1 ",
+            "AND revision >= {} ",
+            "GROUP BY revision ",
+            "ORDER BY revision"
+        ),
         column_str, table, LOWEST_REVISION
     ))?;
     let results = stmt.query_map(&[&config_file], |r| {
@@ -379,13 +383,14 @@ fn api_all_graph_json(
 
     let mut labels = std::collections::HashSet::new();
     let datasets: Vec<_> = db_data
-        .iter()
+        .into_iter()
         .map(|(test_name, runs)| {
+            let first_value = runs[0].1;
             let data: Vec<_> = runs
-                .iter()
+                .into_iter()
                 .map(|r| {
                     labels.insert(r.0);
-                    json!({"x": r.0, "y": r.1 / runs[0].1})
+                    json!({"x": r.0, "y": r.1 / first_value})
                 })
                 .collect();
             let name = test_name
