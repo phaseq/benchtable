@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 itertools = "*"
-rusqlite = "*"
+rusqlite = { version = "*", features=["bundled"] }
 tera = "*"
 serde = { version = "*", features=["derive"] }
 serde_json = "*"
