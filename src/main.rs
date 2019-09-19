@@ -1,10 +1,10 @@
-#![feature(proc_macro_hygiene, decl_macro)]
+#![feature(proc_macro_hygiene)]
 #![allow(clippy::float_cmp)]
 use itertools::Itertools;
 use rocket::http::{RawStr, Status};
 use rocket::response::{content, status, NamedFile};
-use rocket_contrib::templates::Template;
-use rusqlite::Connection;
+use rocket_contrib::{compression::Compression, templates::Template};
+use rusqlite::{Connection, NO_PARAMS};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -77,7 +77,7 @@ fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>
             "SELECT DISTINCT revision FROM {} WHERE revision >= {} ORDER BY revision",
             table, LOWEST_REVISION
         ))?
-        .query_map(&[], |row| row.get(0))?
+        .query_map(NO_PARAMS, |row| row.get(0))?
         .filter_map(|r| r.ok())
         .collect())
 }
@@ -454,6 +454,7 @@ fn static_file(
 fn main() {
     rocket::ignite()
         .attach(SqliteDb::fairing())
+        .attach(Compression::fairing())
         .attach(Template::custom(|engines| {
             engines.tera.register_function("to_color", tera_to_color());
             engines
