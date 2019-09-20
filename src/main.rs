@@ -186,7 +186,7 @@ fn tera_relative_change() -> tera::GlobalFn {
                 ) {
                     (Ok(v1), Ok(v2)) => {
                         let v = v2 / v1 - 1.0;
-                        let s = if v.is_nan() || v == -1.0 {
+                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 {
                             "?".to_string()
                         } else if v > 0.0 {
                             format!("+{:.1}%", 100.0 * v)
@@ -213,7 +213,7 @@ fn tera_to_color() -> tera::GlobalFn {
                 ) {
                     (Ok(v1), Ok(v2)) => {
                         let v = v2 / v1 - 1.0;
-                        let s = if v.is_nan() || v == -1.0 || v > 0.05 {
+                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 || v > 0.05 {
                             "#f00"
                         } else if v < -0.05 {
                             "#0a0"

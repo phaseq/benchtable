@@ -17,11 +17,11 @@ serde_json = "*"
 
 [dependencies.rocket]
 git = "https://github.com/SergioBenitez/Rocket"
-#branch = "master"
-rev = "777d01fa8777679dfc2b8eb1685de46b3db3eddc"
+branch = "master"
+#rev = "777d01fa8777679dfc2b8eb1685de46b3db3eddc"
 
 [dependencies.rocket_contrib]
 git = "https://github.com/SergioBenitez/Rocket"
-#branch = "master"
-rev = "777d01fa8777679dfc2b8eb1685de46b3db3eddc"
+branch = "master"
+#rev = "777d01fa8777679dfc2b8eb1685de46b3db3eddc"
 features=["sqlite_pool", "tera_templates", "compression"]
