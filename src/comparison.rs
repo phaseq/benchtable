@@ -71,6 +71,14 @@ fn db_revision_comparison(
     ))
 }
 
+#[derive(Serialize)]
+struct CsbTest {
+    name: String,
+    time0: f64,
+    time1: f64,
+    memory0: f64,
+    memory1: f64,
+}
 fn db_revision_comparison_csb(
     conn: &Connection,
     revision1: u32,
@@ -105,6 +113,16 @@ fn db_revision_comparison_csb(
         .collect())
 }
 
+#[derive(Serialize)]
+struct IniTest {
+    name: String,
+    cut_time0: f64,
+    cut_time1: f64,
+    draw_time0: f64,
+    draw_time1: f64,
+    memory0: f64,
+    memory1: f64,
+}
 fn db_revision_comparison_ini(
     conn: &Connection,
     revision1: u32,
@@ -140,26 +158,6 @@ fn db_revision_comparison_ini(
         })?
         .filter_map(|r| r.ok())
         .collect())
-}
-
-#[derive(Serialize)]
-struct CsbTest {
-    name: String,
-    time0: f64,
-    time1: f64,
-    memory0: f64,
-    memory1: f64,
-}
-
-#[derive(Serialize)]
-struct IniTest {
-    name: String,
-    cut_time0: f64,
-    cut_time1: f64,
-    draw_time0: f64,
-    draw_time1: f64,
-    memory0: f64,
-    memory1: f64,
 }
 
 #[allow(clippy::float_cmp)]

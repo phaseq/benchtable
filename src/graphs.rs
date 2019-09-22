@@ -7,32 +7,43 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 
+/*
+Color scheme (copied from Chart.js examples):
+
+red: "rgb(255, 99, 132)",
+orange: "rgb(255, 159, 64)",
+yellow: "rgb(255, 205, 86)",
+green: "rgb(75, 192, 192)",
+blue: "rgb(54, 162, 235)",
+purple: "rgb(153, 102, 255)",
+grey: "rgb(201, 203, 207)"
+*/
+
 #[get("/file/<file_type>?<id>")]
 pub fn api_file_graph_json(
     conn: SqliteDb,
     file_type: &RawStr,
     id: &RawStr,
 ) -> Result<content::Json<String>, status::Custom<String>> {
-    let (table, columns): (&str, Vec<(&str, &str)>) = match file_type.as_str() {
-        "csb" => (
-            "processed_csb",
-            vec![("Memory", "memory_peak"), ("Run Time", "player_total_time")],
-        ),
-        "ini" => (
-            "processed_ini",
-            vec![
-                ("Memory", "memory_peak"),
-                ("Cut Time", "cutting_time"),
-                ("Draw Time", "draw_time"),
-            ],
-        ),
-        _ => {
-            return Err(status::Custom(
-                Status::BadRequest,
-                "unexpected table type".to_string(),
-            ));
-        }
-    };
+    let (sql_table, sql_columns, column_titles): (&str, Vec<&str>, Vec<&str>) =
+        match file_type.as_str() {
+            "csb" => (
+                "processed_csb",
+                vec!["memory_peak", "player_total_time"],
+                vec!["Memory", "Run Time"],
+            ),
+            "ini" => (
+                "processed_ini",
+                vec!["memory_peak", "cutting_time", "draw_time"],
+                vec!["Memory", "Cut Time", "Draw Time"],
+            ),
+            _ => {
+                return Err(status::Custom(
+                    Status::BadRequest,
+                    "unexpected table type".to_string(),
+                ));
+            }
+        };
     let id = match id.url_decode() {
         Ok(id) => id,
         _ => {
@@ -42,22 +53,27 @@ pub fn api_file_graph_json(
             ))
         }
     };
-    let sql_columns: Vec<_> = columns.iter().map(|c| c.1).collect();
-    let db_data = db_revision_history_for_file(&conn, table, &sql_columns, &id)
+    let revision_info = db_revision_history_for_file(&conn, sql_table, &sql_columns, &id)
         .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
-    let labels: Vec<_> = db_data.iter().map(|r| r.0).collect();
+    let reference_stats = &revision_info[0].stats;
+    let labels: Vec<_> = revision_info.iter().map(|r| r.revision).collect();
     let colors = vec![
         "rgb(54, 162, 235)",
         "rgb(255, 159, 64)",
         "rgb(75, 192, 192)",
     ];
-    let datasets: Vec<_> = columns
+    let datasets: Vec<_> = column_titles
         .into_iter()
         .enumerate()
-        .map(|(i, (title, _))| {
-            let data: Vec<_> = db_data
+        .map(|(i, title)| {
+            let data: Vec<_> = revision_info
                 .iter()
-                .map(|r| json!({"x": r.0, "y": r.1[i] / db_data[0].1[i], "v": r.1[i]}))
+                .map(|r| {
+                    json!({
+                    "x": r.revision,
+                    "y": r.stats[i] / reference_stats[i],
+                    "v": r.stats[i]})
+                })
                 .collect();
             json!({
                 "label": title,
@@ -73,12 +89,16 @@ pub fn api_file_graph_json(
     ))
 }
 
+struct RevisionInfos {
+    revision: u32,
+    stats: Vec<f64>,
+}
 fn db_revision_history_for_file(
     conn: &Connection,
     table: &str,
     columns: &[&str],
     config_file: &str,
-) -> rusqlite::Result<Vec<(u32, Vec<f64>)>> {
+) -> rusqlite::Result<Vec<RevisionInfos>> {
     let column_str = columns
         .iter()
         .format_with(",", |v, f| f(&format_args!("AVG({})", v)));
@@ -97,7 +117,10 @@ fn db_revision_history_for_file(
         for i in 0..columns.len() {
             stats.push(r.get(i + 1));
         }
-        (r.get(0), stats)
+        RevisionInfos {
+            revision: r.get(0),
+            stats,
+        }
     })?;
     Ok(results.filter_map(|r| r.ok()).collect())
 }
@@ -109,14 +132,6 @@ pub fn api_all_graph_json(
     r0: u32,
     r1: u32,
 ) -> Result<content::Json<String>, status::Custom<String>> {
-    /*
-    red: "rgb(255, 99, 132)",
-    orange: "rgb(255, 159, 64)",
-    yellow: "rgb(255, 205, 86)",
-    green: "rgb(75, 192, 192)",
-    blue: "rgb(54, 162, 235)",
-    purple: "rgb(153, 102, 255)",
-    grey: "rgb(201, 203, 207)"*/
     let info = match file_type.as_str() {
         "csb_memory" => (
             "Memory",
@@ -162,12 +177,12 @@ pub fn api_all_graph_json(
     let datasets: Vec<_> = db_data
         .into_iter()
         .map(|(test_name, runs)| {
-            let first_value = runs[0].1;
+            let first_value = runs[0].stat;
             let data: Vec<_> = runs
                 .into_iter()
                 .map(|r| {
-                    labels.insert(r.0);
-                    json!({"x": r.0, "y": r.1 / first_value})
+                    labels.insert(r.revision);
+                    json!({"x": r.revision, "y": r.stat / first_value})
                 })
                 .collect();
             let name = test_name
@@ -194,13 +209,17 @@ pub fn api_all_graph_json(
     ))
 }
 
+struct RevisionInfo {
+    revision: u32,
+    stat: f64,
+}
 fn db_revision_history_for_files(
     conn: &Connection,
     table: &str,
     column: &str,
     low_revision: u32,
     high_revision: u32,
-) -> rusqlite::Result<HashMap<String, Vec<(u32, f64)>>> {
+) -> rusqlite::Result<HashMap<String, Vec<RevisionInfo>>> {
     let mut stmt = conn.prepare_cached(&format!(
         "SELECT config_file, revision, AVG({}) FROM {} WHERE revision >= ?1 AND revision <= ?2 GROUP BY revision, config_file ORDER BY revision",
         column, table
@@ -211,9 +230,9 @@ fn db_revision_history_for_files(
         })?
         .filter_map(|r| r.ok());
     let mut result = HashMap::new();
-    for (config_file, revision, stats) in results {
+    for (config_file, revision, stat) in results {
         let t = result.entry(config_file).or_insert_with(Vec::new);
-        t.push((revision, stats));
+        t.push(RevisionInfo { revision, stat });
     }
     Ok(result)
 }
