@@ -161,3 +161,59 @@ struct IniTest {
     memory0: f64,
     memory1: f64,
 }
+
+#[allow(clippy::float_cmp)]
+pub fn tera_relative_change() -> tera::GlobalFn {
+    Box::new(move |args| -> tera::Result<tera::Value> {
+        match (args.get("v1"), args.get("v2")) {
+            (Some(v1), Some(v2)) => {
+                match (
+                    tera::from_value::<f64>(v1.clone()),
+                    tera::from_value::<f64>(v2.clone()),
+                ) {
+                    (Ok(v1), Ok(v2)) => {
+                        let v = v2 / v1 - 1.0;
+                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 {
+                            "?".to_string()
+                        } else if v > 0.0 {
+                            format!("+{:.1}%", 100.0 * v)
+                        } else {
+                            format!("{:.1}%", 100.0 * v)
+                        };
+                        Ok(tera::to_value(s).unwrap())
+                    }
+                    _ => Ok("?".into()),
+                }
+            }
+            _ => Err("oops".into()),
+        }
+    })
+}
+
+#[allow(clippy::float_cmp)]
+pub fn tera_to_color() -> tera::GlobalFn {
+    Box::new(move |args| -> tera::Result<tera::Value> {
+        match (args.get("v1"), args.get("v2")) {
+            (Some(v1), Some(v2)) => {
+                match (
+                    tera::from_value::<f64>(v1.clone()),
+                    tera::from_value::<f64>(v2.clone()),
+                ) {
+                    (Ok(v1), Ok(v2)) => {
+                        let v = v2 / v1 - 1.0;
+                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 || v > 0.05 {
+                            "#f00"
+                        } else if v < -0.05 {
+                            "#0a0"
+                        } else {
+                            "#000"
+                        };
+                        Ok(tera::to_value(s).unwrap())
+                    }
+                    _ => Ok("?".into()),
+                }
+            }
+            _ => Err("oops".into()),
+        }
+    })
+}
