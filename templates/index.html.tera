@@ -292,13 +292,6 @@
 
 	<h1>CSB Benchmarks</h1>
 	<table class="benchtable">
-		<thead>
-			<tr>
-				<td></td>
-				<th>r{{revision_low}}</th>
-				<th>r{{revision_high}}</th>
-			</tr>
-		</thead>
 		<tbody>
 			{% for test in csb_tests %}
 			<tr data-field-start="true">
@@ -333,14 +326,6 @@
 
 	<h1>Ini Benchmarks</h1>
 	<table class="benchtable">
-		<thead>
-			<tr>
-				<td></td>
-				<th>r{{revision_low}}</th>
-				<th>r{{revision_high}}</th>
-				<th></th>
-			</tr>
-		</thead>
 		<tbody>
 			{% for test in ini_tests %}
 			<tr data-field-start="true">
