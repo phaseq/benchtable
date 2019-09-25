@@ -20,7 +20,7 @@ fn main() {
         .attach(Template::custom(|engines| {
             engines
                 .tera
-                .register_function("to_color", comparison::tera_to_color());
+                .register_function("to_style", comparison::tera_to_style());
             engines
                 .tera
                 .register_function("relative_change", comparison::tera_relative_change());

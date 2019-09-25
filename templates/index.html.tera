@@ -307,10 +307,10 @@
 						<summary>{{test.name}}</summary>
 					</details>
 				</th>
-				<td>time: <span style="color: {{to_color(v1=test.time0, v2=test.time1)}}">
+				<td>time: <span style="{{to_style(v1=test.time0, v2=test.time1)}}">
 						{{relative_change(v1=test.time0, v2=test.time1)}}</span>
 				</td>
-				<td>mem: <span style="color: {{to_color(v1=test.memory0, v2=test.memory1)}}">
+				<td>mem: <span style="{{to_style(v1=test.memory0, v2=test.memory1)}}">
 						{{relative_change(v1=test.memory0, v2=test.memory1)}}</span>
 				</td>
 			</tr>
@@ -349,11 +349,11 @@
 						<summary>{{test.name}}</summary>
 					</details>
 				</th>
-				<td>cut: <span style="color: {{to_color(v1=test.cut_time0, v2=test.cut_time1)}}">
+				<td>cut: <span style="{{to_style(v1=test.cut_time0, v2=test.cut_time1)}}">
 						{{relative_change(v1=test.cut_time0, v2=test.cut_time1)}}</span></td>
-				<td>draw: <span style="color: {{to_color(v1=test.draw_time0, v2=test.draw_time1)}}">
+				<td>draw: <span style="{{to_style(v1=test.draw_time0, v2=test.draw_time1)}}">
 						{{relative_change(v1=test.draw_time0, v2=test.draw_time1)}}</span></td>
-				<td>mem: <span style="color: {{to_color(v1=test.memory0, v2=test.memory1)}}">
+				<td>mem: <span style="{{to_style(v1=test.memory0, v2=test.memory1)}}">
 						{{relative_change(v1=test.memory0, v2=test.memory1)}}</span>
 				</td>
 			</tr>

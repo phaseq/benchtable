@@ -189,7 +189,7 @@ pub fn tera_relative_change() -> tera::GlobalFn {
 }
 
 #[allow(clippy::float_cmp)]
-pub fn tera_to_color() -> tera::GlobalFn {
+pub fn tera_to_style() -> tera::GlobalFn {
     Box::new(move |args| -> tera::Result<tera::Value> {
         match (args.get("v1"), args.get("v2")) {
             (Some(v1), Some(v2)) => {
@@ -200,11 +200,11 @@ pub fn tera_to_color() -> tera::GlobalFn {
                     (Ok(v1), Ok(v2)) => {
                         let v = v2 / v1 - 1.0;
                         let s = if v.is_nan() || v.is_infinite() || v == -1.0 || v > 0.05 {
-                            "#f00"
+                            "color:#e00;font-weight:bold"
                         } else if v < -0.05 {
-                            "#0a0"
+                            "color:#0a0;font-weight:bold"
                         } else {
-                            "#000"
+                            "color:#aaa"
                         };
                         Ok(tera::to_value(s).unwrap())
                     }
