@@ -72,16 +72,18 @@ markup::define! {
             }
         }
     }
+
     Form<'a>(page: &'a Page) {
         form {
             "Revision range: "
             select[name="r1"] {
                 {Revisions {page, selected_revision: page.revision_low}}
             }
+            " "
             select[name="r2"] {
                 {Revisions {page, selected_revision: page.revision_high}}
             }
-            "Sort by: "
+            " Sort by: "
             select[name="sort"] {
                 option[selected? = page.sort == "name"] { "name" }
                 option[selected? = page.sort == "cut time"] { "cut time" }
@@ -92,11 +94,13 @@ markup::define! {
             input[type="submit", value="Ok"] {}
         }
     }
+
     Revisions<'a>(page: &'a Page, selected_revision: u32) {
         @for r in page.revisions.iter() {
             option[selected?=r == selected_revision] {{r}}
         }
     }
+
     CsbTable<'a>(page: &'a Page) {
         h1 { "CSB Benchmarks" }
         table.benchtable {
@@ -107,6 +111,7 @@ markup::define! {
             }
         }
     }
+
     CsbRow<'a>(page: &'a Page, test: &'a CsbTest) {
         tr["data-field-start" = true] {
             th["data-js-name" = &test.name] {
@@ -141,6 +146,7 @@ markup::define! {
             td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
         }
     }
+
     IniTable<'a>(page: &'a Page) {
         h1 { "CSB Benchmarks" }
         table.benchtable {
