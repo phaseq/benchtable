@@ -129,13 +129,13 @@ markup::define! {
         }
         tr[style = "display:none"] {
             th[style = "text-align:right"] { "r" {page.revision_low} }
-            td { {test.time0} }
-            td { {test.memory0} }
+            td { {format_time(test.time0)} }
+            td { {format_mem(test.memory0)} }
         }
         tr[style = "display:none"] {
             th[style = "text-align:right"] { "r" {page.revision_high} }
-            td { {test.time1} }
-            td { {test.memory1} }
+            td { {format_time(test.time1)} }
+            td { {format_mem(test.memory1)} }
         }
         tr[style = "display:none"] {
             td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
@@ -179,18 +179,18 @@ markup::define! {
         }
         tr[style = "display:none"] {
             th[style = "text-align:right"] { "r" {page.revision_low} }
-            td { {test.cut_time0} }
-            td { {test.draw_time0} }
-            td { {test.memory0} }
+            td { {format_time(test.cut_time0)} }
+            td { {format_time(test.draw_time0)} }
+            td { {format_mem(test.memory0)} }
         }
         tr[style = "display:none"] {
             th[style = "text-align:right"] { "r" {page.revision_high} }
-            td { {test.cut_time1} }
-            td { {test.draw_time0} }
-            td { {test.memory1} }
+            td { {format_time(test.cut_time1)} }
+            td { {format_time(test.draw_time0)} }
+            td { {format_mem(test.memory1)} }
         }
         tr[style = "display:none"] {
-            td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
+            td[colspan = 4, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
         }
     }
 }
@@ -217,6 +217,14 @@ pub fn to_style(v1: f64, v2: f64) -> &'static str {
     } else {
         "color:#aaa"
     }
+}
+
+fn format_time(t: f64) -> String {
+    format!("{:.2}s", t)
+}
+
+fn format_mem(m: f64) -> String {
+    format!("{:.0} MB", m)
 }
 
 fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>> {
