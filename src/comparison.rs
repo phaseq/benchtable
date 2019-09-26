@@ -1,10 +1,7 @@
 use crate::{SqliteDb, LOWEST_REVISION};
-use rocket::http::{RawStr, Status};
-use rocket::response::status;
-use rocket_contrib::templates::Template;
+use rocket::http::{ContentType, RawStr, Status};
+use rocket::response::{content::Content, status};
 use rusqlite::{Connection, NO_PARAMS};
-use serde::Serialize;
-use tera::Context;
 
 #[get("/?<r1>&<r2>&<sort>")]
 pub fn index(
@@ -12,29 +9,214 @@ pub fn index(
     r1: Option<u32>,
     r2: Option<u32>,
     sort: Option<&RawStr>,
-) -> Result<Template, status::Custom<String>> {
+) -> Result<Content<String>, status::Custom<String>> {
     let revisions = db_all_revisions(&conn, "processed_csb")
         .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
-    let first_revision = r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
-    let second_revision = r2.unwrap_or_else(|| *revisions.last().unwrap());
+    let revision_low = r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
+    let revision_high = r2.unwrap_or_else(|| *revisions.last().unwrap());
     let sort = sort
         .and_then(|s| s.url_decode().ok())
         .unwrap_or_else(|| "cut time".to_string());
 
-    let (csb_tests, ini_tests) =
-        db_revision_comparison(&conn, first_revision, second_revision, &sort)
-            .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+    let (csb_tests, ini_tests) = db_revision_comparison(&conn, revision_low, revision_high, &sort)
+        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
-    let mut context = Context::new();
-    context.insert("title", "CutSim benchmarks");
-    context.insert("revision_low", &first_revision);
-    context.insert("revision_high", &second_revision);
-    context.insert("revisions", &revisions);
-    context.insert("sort", &sort);
-    context.insert("csb_tests", &csb_tests);
-    context.insert("ini_tests", &ini_tests);
-    Ok(Template::render("index", &context))
+    let html = format!(
+        "{}",
+        Index {
+            page: &Page {
+                revisions,
+                revision_low,
+                revision_high,
+                sort,
+                csb_tests,
+                ini_tests,
+            }
+        }
+    );
+    Ok(Content(ContentType::HTML, html))
+}
+
+pub struct Page {
+    revisions: Vec<u32>,
+    revision_low: u32,
+    revision_high: u32,
+    sort: String,
+    csb_tests: Vec<CsbTest>,
+    ini_tests: Vec<IniTest>,
+}
+
+markup::define! {
+    Index<'a>(page: &'a Page) {
+        {markup::doctype()}
+        html {
+            head {
+                title { "CutSim Benchmarks" }
+                script[src="static/Chart.min.js"] {}
+                script[src="static/table.js"] {}
+                link[rel="stylesheet", href="static/style.css"] {}
+            }
+            body {
+                {Form { page }}
+                div#summary_charts {
+                    button[
+                        onclick = format!("loadSummaryCharts({},{})",
+                            page.revision_low, page.revision_high)
+                    ] {
+                        "Load Summary Charts"
+                    }
+                }
+                {CsbTable { page }}
+                {IniTable { page }}
+            }
+        }
+    }
+    Form<'a>(page: &'a Page) {
+        form {
+            "Revision range: "
+            select[name="r1"] {
+                {Revisions {page, selected_revision: page.revision_low}}
+            }
+            select[name="r2"] {
+                {Revisions {page, selected_revision: page.revision_high}}
+            }
+            "Sort by: "
+            select[name="sort"] {
+                option[selected? = page.sort == "name"] { "name" }
+                option[selected? = page.sort == "cut time"] { "cut time" }
+                option[selected? = page.sort == "draw time"] { "draw time" }
+                option[selected? = page.sort == "memory"] { "memory" }
+            }
+            " "
+            input[type="submit", value="Ok"] {}
+        }
+    }
+    Revisions<'a>(page: &'a Page, selected_revision: u32) {
+        @for r in page.revisions.iter() {
+            option[selected?=r == selected_revision] {{r}}
+        }
+    }
+    CsbTable<'a>(page: &'a Page) {
+        h1 { "CSB Benchmarks" }
+        table.benchtable {
+            tbody {
+                @for test in page.csb_tests.iter() {
+                    {CsbRow { page, test } }
+                }
+            }
+        }
+    }
+    CsbRow<'a>(page: &'a Page, test: &'a CsbTest) {
+        tr["data-field-start" = true] {
+            th["data-js-name" = &test.name] {
+                details."toggle-table" {
+                    summary { {test.name} }
+                }
+            }
+            td {
+                "time: "
+                span[style = to_style(test.time0, test.time1)] {
+                    {relative_change(test.time0, test.time1)}
+                }
+            }
+            td {
+                "mem: "
+                span[style = to_style(test.memory0, test.memory1)] {
+                    {relative_change(test.memory0, test.memory1)}
+                }
+            }
+        }
+        tr[style = "display:none"] {
+            th[style = "text-align:right"] { "r" {page.revision_low} }
+            td { {test.time0} }
+            td { {test.memory0} }
+        }
+        tr[style = "display:none"] {
+            th[style = "text-align:right"] { "r" {page.revision_high} }
+            td { {test.time1} }
+            td { {test.memory1} }
+        }
+        tr[style = "display:none"] {
+            td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
+        }
+    }
+    IniTable<'a>(page: &'a Page) {
+        h1 { "CSB Benchmarks" }
+        table.benchtable {
+            tbody {
+                @for test in page.ini_tests.iter() {
+                    {IniRow { page, test } }
+                }
+            }
+        }
+    }
+    IniRow<'a>(page: &'a Page, test: &'a IniTest) {
+        tr["data-field-start" = true] {
+            th["data-js-name" = &test.name] {
+                details."toggle-table" {
+                    summary { {test.name} }
+                }
+            }
+            td {
+                "cut: "
+                span[style = to_style(test.cut_time0, test.cut_time1)] {
+                    {relative_change(test.cut_time0, test.cut_time1)}
+                }
+            }
+            td {
+                "draw: "
+                span[style = to_style(test.draw_time0, test.draw_time1)] {
+                    {relative_change(test.draw_time0, test.draw_time1)}
+                }
+            }
+            td {
+                "mem: "
+                span[style = to_style(test.memory0, test.memory1)] {
+                    {relative_change(test.memory0, test.memory1)}
+                }
+            }
+        }
+        tr[style = "display:none"] {
+            th[style = "text-align:right"] { "r" {page.revision_low} }
+            td { {test.cut_time0} }
+            td { {test.draw_time0} }
+            td { {test.memory0} }
+        }
+        tr[style = "display:none"] {
+            th[style = "text-align:right"] { "r" {page.revision_high} }
+            td { {test.cut_time1} }
+            td { {test.draw_time0} }
+            td { {test.memory1} }
+        }
+        tr[style = "display:none"] {
+            td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
+        }
+    }
+}
+
+#[allow(clippy::float_cmp)]
+pub fn relative_change(v1: f64, v2: f64) -> String {
+    let v = v2 / v1 - 1.0;
+    if v.is_nan() || v.is_infinite() || v == -1.0 {
+        "?".to_string()
+    } else if v > 0.0 {
+        format!("+{:.1}%", 100.0 * v)
+    } else {
+        format!("{:.1}%", 100.0 * v)
+    }
+}
+
+#[allow(clippy::float_cmp)]
+pub fn to_style(v1: f64, v2: f64) -> &'static str {
+    let v = v2 / v1 - 1.0;
+    if v.is_nan() || v.is_infinite() || v == -1.0 || v > 0.05 {
+        "color:#e00;font-weight:bold"
+    } else if v < -0.05 {
+        "color:#0a0;font-weight:bold"
+    } else {
+        "color:#aaa"
+    }
 }
 
 fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>> {
@@ -71,8 +253,7 @@ fn db_revision_comparison(
     ))
 }
 
-#[derive(Serialize)]
-struct CsbTest {
+pub struct CsbTest {
     name: String,
     time0: f64,
     time1: f64,
@@ -113,8 +294,7 @@ fn db_revision_comparison_csb(
         .collect())
 }
 
-#[derive(Serialize)]
-struct IniTest {
+pub struct IniTest {
     name: String,
     cut_time0: f64,
     cut_time1: f64,
@@ -158,60 +338,4 @@ fn db_revision_comparison_ini(
         })?
         .filter_map(|r| r.ok())
         .collect())
-}
-
-#[allow(clippy::float_cmp)]
-pub fn tera_relative_change() -> tera::GlobalFn {
-    Box::new(move |args| -> tera::Result<tera::Value> {
-        match (args.get("v1"), args.get("v2")) {
-            (Some(v1), Some(v2)) => {
-                match (
-                    tera::from_value::<f64>(v1.clone()),
-                    tera::from_value::<f64>(v2.clone()),
-                ) {
-                    (Ok(v1), Ok(v2)) => {
-                        let v = v2 / v1 - 1.0;
-                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 {
-                            "?".to_string()
-                        } else if v > 0.0 {
-                            format!("+{:.1}%", 100.0 * v)
-                        } else {
-                            format!("{:.1}%", 100.0 * v)
-                        };
-                        Ok(tera::to_value(s).unwrap())
-                    }
-                    _ => Ok("?".into()),
-                }
-            }
-            _ => Err("oops".into()),
-        }
-    })
-}
-
-#[allow(clippy::float_cmp)]
-pub fn tera_to_style() -> tera::GlobalFn {
-    Box::new(move |args| -> tera::Result<tera::Value> {
-        match (args.get("v1"), args.get("v2")) {
-            (Some(v1), Some(v2)) => {
-                match (
-                    tera::from_value::<f64>(v1.clone()),
-                    tera::from_value::<f64>(v2.clone()),
-                ) {
-                    (Ok(v1), Ok(v2)) => {
-                        let v = v2 / v1 - 1.0;
-                        let s = if v.is_nan() || v.is_infinite() || v == -1.0 || v > 0.05 {
-                            "color:#e00;font-weight:bold"
-                        } else if v < -0.05 {
-                            "color:#0a0;font-weight:bold"
-                        } else {
-                            "color:#aaa"
-                        };
-                        Ok(tera::to_value(s).unwrap())
-                    }
-                    _ => Ok("?".into()),
-                }
-            }
-            _ => Err("oops".into()),
-        }
-    })
 }

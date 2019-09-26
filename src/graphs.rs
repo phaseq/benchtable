@@ -125,12 +125,12 @@ fn db_revision_history_for_file(
     Ok(results.filter_map(|r| r.ok()).collect())
 }
 
-#[get("/all/<file_type>?<r0>&<r1>")]
+#[get("/all/<file_type>?<r1>&<r2>")]
 pub fn api_all_graph_json(
     conn: SqliteDb,
     file_type: &RawStr,
-    r0: u32,
     r1: u32,
+    r2: u32,
 ) -> Result<content::Json<String>, status::Custom<String>> {
     let info = match file_type.as_str() {
         "csb_memory" => (
@@ -170,7 +170,7 @@ pub fn api_all_graph_json(
             ));
         }
     };
-    let db_data = db_revision_history_for_files(&conn, info.2, info.3, r0, r1)
+    let db_data = db_revision_history_for_files(&conn, info.2, info.3, r1, r2)
         .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
 
     let mut labels = std::collections::HashSet::new();
@@ -185,12 +185,8 @@ pub fn api_all_graph_json(
                     json!({"x": r.revision, "y": r.stat / first_value})
                 })
                 .collect();
-            let name = test_name
-                .split("\\testcases\\")
-                .last()
-                .unwrap_or(&test_name);
             json!({
-                "label": name,
+                "label": test_name,
                 "backgroundColor": info.1,
                 "borderColor": info.1,
                 "fill": false,
