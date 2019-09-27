@@ -56,6 +56,7 @@ markup::define! {
                 script[src="static/Chart.min.js"] {}
                 script[src="static/table.js"] {}
                 link[rel="stylesheet", href="static/style.css"] {}
+                link[rel="icon", type="image/png", href="static/icon.png"] {}
             }
             body {
                 {Form { page }}
