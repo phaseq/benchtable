@@ -31,7 +31,6 @@ pub fn api_file_graph_json(
     file_type: web::Path<(String,)>,
     query: web::Query<FileGraphRequest>,
 ) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
-    //let file_type = file_type.0;
     web::block(move || {
         let (sql_table, sql_columns, column_titles): (&str, Vec<&str>, Vec<&str>) =
             match file_type.0.as_str() {
@@ -86,7 +85,7 @@ pub fn api_file_graph_json(
     .then(
         |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
             match res {
-                Ok(j) => Ok(HttpResponse::Ok().json(j)),
+                Ok(j) => Ok(HttpResponse::Ok().body(j)),
                 Err(_) => Ok(HttpResponse::InternalServerError().into()),
             }
         },
@@ -210,7 +209,7 @@ pub fn api_all_graph_json(
     .then(
         |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
             match res {
-                Ok(j) => Ok(HttpResponse::Ok().json(j)),
+                Ok(j) => Ok(HttpResponse::Ok().body(j)),
                 Err(_) => Ok(HttpResponse::InternalServerError().into()),
             }
         },
