@@ -1,30 +1,33 @@
-use crate::{SqliteDb, LOWEST_REVISION};
-use rocket::http::{ContentType, RawStr, Status};
-use rocket::response::{content::Content, status};
+use crate::LOWEST_REVISION;
+use actix_web::{error, web, HttpResponse};
+use futures::Future;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Connection, NO_PARAMS};
+use serde::Deserialize;
 
-#[get("/?<r1>&<r2>&<sort>")]
-pub fn index(
-    conn: SqliteDb,
+#[derive(Deserialize)]
+pub struct IndexRequest {
     r1: Option<u32>,
     r2: Option<u32>,
-    sort: Option<&RawStr>,
-) -> Result<Content<String>, status::Custom<String>> {
-    let revisions = db_all_revisions(&conn, "processed_csb")
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+    sort: Option<String>,
+}
+pub fn index(
+    db: web::Data<Pool<SqliteConnectionManager>>,
+    query: web::Query<IndexRequest>,
+) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
+    web::block(move || {
+        let conn = db.get().unwrap();
+        let revisions = db_all_revisions(&conn, "processed_csb")?;
 
-    let revision_low = r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
-    let revision_high = r2.unwrap_or_else(|| *revisions.last().unwrap());
-    let sort = sort
-        .and_then(|s| s.url_decode().ok())
-        .unwrap_or_else(|| "cut time".to_string());
+        let revision_low = query.r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
+        let revision_high = query.r2.unwrap_or_else(|| *revisions.last().unwrap());
+        let sort = query.sort.clone().unwrap_or("cut time".to_string());
 
-    let (csb_tests, ini_tests) = db_revision_comparison(&conn, revision_low, revision_high, &sort)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+        let (csb_tests, ini_tests) =
+            db_revision_comparison(&conn, revision_low, revision_high, &sort)?;
 
-    let html = format!(
-        "{}",
-        Index {
+        Ok(Index {
             page: &Page {
                 revisions,
                 revision_low,
@@ -32,10 +35,18 @@ pub fn index(
                 sort,
                 csb_tests,
                 ini_tests,
-            }
+            },
         }
-    );
-    Ok(Content(ContentType::HTML, html))
+        .to_string())
+    })
+    .then(
+        |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
+            match res {
+                Ok(html) => Ok(HttpResponse::Ok().content_type("text/html").body(html)),
+                Err(_) => Ok(HttpResponse::InternalServerError().into()),
+            }
+        },
+    )
 }
 
 pub struct Page {
@@ -240,7 +251,7 @@ fn db_all_revisions(conn: &Connection, table: &str) -> rusqlite::Result<Vec<u32>
             "SELECT DISTINCT revision FROM {} WHERE revision >= {} ORDER BY revision",
             table, LOWEST_REVISION
         ))?
-        .query_map(NO_PARAMS, |row| row.get(0))?
+        .query_map(NO_PARAMS, |row| Ok(row.get(0)?))?
         .filter_map(|r| r.ok())
         .collect())
 }
@@ -295,15 +306,15 @@ fn db_revision_comparison_csb(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0);
+            let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            CsbTest {
+            Ok(CsbTest {
                 name: name.to_string(),
-                time0: row.get(1),
-                time1: row.get(2),
-                memory0: row.get(3),
-                memory1: row.get(4),
-            }
+                time0: row.get(1)?,
+                time1: row.get(2)?,
+                memory0: row.get(3)?,
+                memory1: row.get(4)?,
+            })
         })?
         .filter_map(|r| r.ok())
         .collect())
@@ -339,17 +350,17 @@ fn db_revision_comparison_ini(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0);
+            let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            IniTest {
+            Ok(IniTest {
                 name: name.to_string(),
-                cut_time0: row.get(1),
-                cut_time1: row.get(2),
-                draw_time0: row.get(3),
-                draw_time1: row.get(4),
-                memory0: row.get(5),
-                memory1: row.get(6),
-            }
+                cut_time0: row.get(1)?,
+                cut_time1: row.get(2)?,
+                draw_time0: row.get(3)?,
+                draw_time1: row.get(4)?,
+                memory0: row.get(5)?,
+                memory1: row.get(6)?,
+            })
         })?
         .filter_map(|r| r.ok())
         .collect())

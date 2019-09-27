@@ -1,8 +1,11 @@
-use crate::{SqliteDb, LOWEST_REVISION};
+use crate::LOWEST_REVISION;
+use actix_web::{error, web, HttpResponse};
+use futures::Future;
 use itertools::Itertools;
-use rocket::http::{RawStr, Status};
-use rocket::response::{content, status};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -19,74 +22,75 @@ purple: "rgb(153, 102, 255)",
 grey: "rgb(201, 203, 207)"
 */
 
-#[get("/file/<file_type>?<id>")]
+#[derive(Deserialize)]
+pub struct FileGraphRequest {
+    id: String,
+}
 pub fn api_file_graph_json(
-    conn: SqliteDb,
-    file_type: &RawStr,
-    id: &RawStr,
-) -> Result<content::Json<String>, status::Custom<String>> {
-    let (sql_table, sql_columns, column_titles): (&str, Vec<&str>, Vec<&str>) =
-        match file_type.as_str() {
-            "csb" => (
-                "processed_csb",
-                vec!["memory_peak", "player_total_time"],
-                vec!["Memory", "Run Time"],
-            ),
-            "ini" => (
-                "processed_ini",
-                vec!["memory_peak", "cutting_time", "draw_time"],
-                vec!["Memory", "Cut Time", "Draw Time"],
-            ),
-            _ => {
-                return Err(status::Custom(
-                    Status::BadRequest,
-                    "unexpected table type".to_string(),
-                ));
-            }
-        };
-    let id = match id.url_decode() {
-        Ok(id) => id,
-        _ => {
-            return Err(status::Custom(
-                Status::BadRequest,
-                "couldn't decode id".to_string(),
-            ))
-        }
-    };
-    let revision_info = db_revision_history_for_file(&conn, sql_table, &sql_columns, &id)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
-    let reference_stats = &revision_info[0].stats;
-    let labels: Vec<_> = revision_info.iter().map(|r| r.revision).collect();
-    let colors = vec![
-        "rgb(54, 162, 235)",
-        "rgb(255, 159, 64)",
-        "rgb(75, 192, 192)",
-    ];
-    let datasets: Vec<_> = column_titles
-        .into_iter()
-        .enumerate()
-        .map(|(i, title)| {
-            let data: Vec<_> = revision_info
-                .iter()
-                .map(|r| {
-                    json!({
+    db: web::Data<Pool<SqliteConnectionManager>>,
+    file_type: web::Path<(String,)>,
+    query: web::Query<FileGraphRequest>,
+) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
+    //let file_type = file_type.0;
+    web::block(move || {
+        let (sql_table, sql_columns, column_titles): (&str, Vec<&str>, Vec<&str>) =
+            match file_type.0.as_str() {
+                "csb" => (
+                    "processed_csb",
+                    vec!["memory_peak", "player_total_time"],
+                    vec!["Memory", "Run Time"],
+                ),
+                "ini" => (
+                    "processed_ini",
+                    vec!["memory_peak", "cutting_time", "draw_time"],
+                    vec!["Memory", "Cut Time", "Draw Time"],
+                ),
+                _ => {
+                    return Ok("unexpected table type".to_string());
+                }
+            };
+        let conn = db.get().unwrap();
+        let revision_info =
+            db_revision_history_for_file(&conn, sql_table, &sql_columns, &query.id)?;
+        let reference_stats = &revision_info[0].stats;
+        let labels: Vec<_> = revision_info.iter().map(|r| r.revision).collect();
+        let colors = vec![
+            "rgb(54, 162, 235)",
+            "rgb(255, 159, 64)",
+            "rgb(75, 192, 192)",
+        ];
+        let datasets: Vec<_> = column_titles
+            .into_iter()
+            .enumerate()
+            .map(|(i, title)| {
+                let data: Vec<_> = revision_info
+                    .iter()
+                    .map(|r| {
+                        json!({
                     "x": r.revision,
                     "y": r.stats[i] / reference_stats[i],
                     "v": r.stats[i]})
+                    })
+                    .collect();
+                json!({
+                    "label": title,
+                    "backgroundColor": colors[i],
+                    "borderColor": colors[i],
+                    "fill": false,
+                    "data": data
                 })
-                .collect();
-            json!({
-                "label": title,
-                "backgroundColor": colors[i],
-                "borderColor": colors[i],
-                "fill": false,
-                "data": data
             })
-        })
-        .collect();
-    Ok(content::Json(
-        json!({"labels": labels, "datasets": datasets}).to_string(),
-    ))
+            .collect();
+        Ok(json!({"labels": labels, "datasets": datasets}).to_string())
+    })
+    .then(
+        |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
+            match res {
+                Ok(j) => Ok(HttpResponse::Ok().json(j)),
+                Err(_) => Ok(HttpResponse::InternalServerError().into()),
+            }
+        },
+    )
 }
 
 struct RevisionInfos {
@@ -115,94 +119,102 @@ fn db_revision_history_for_file(
     let results = stmt.query_map(&[&config_file], |r| {
         let mut stats = Vec::new();
         for i in 0..columns.len() {
-            stats.push(r.get(i + 1));
+            stats.push(r.get(i + 1)?);
         }
-        RevisionInfos {
-            revision: r.get(0),
+        Ok(RevisionInfos {
+            revision: r.get(0)?,
             stats,
-        }
+        })
     })?;
     Ok(results.filter_map(|r| r.ok()).collect())
 }
 
-#[get("/all/<file_type>?<r1>&<r2>")]
-pub fn api_all_graph_json(
-    conn: SqliteDb,
-    file_type: &RawStr,
+#[derive(Deserialize)]
+pub struct AllGraphRequest {
     r1: u32,
     r2: u32,
-) -> Result<content::Json<String>, status::Custom<String>> {
-    let info = match file_type.as_str() {
-        "csb_memory" => (
-            "Memory",
-            "rgb(54, 162, 235)",
-            "processed_csb",
-            "memory_peak",
-        ),
-        "csb_play_time" => (
-            "Run Time",
-            "rgb(255, 205, 86)",
-            "processed_csb",
-            "player_total_time",
-        ),
-        "ini_memory" => (
-            "Memory",
-            "rgb(54, 162, 235)",
-            "processed_ini",
-            "memory_peak",
-        ),
-        "ini_cut_time" => (
-            "Cut Time",
-            "rgb(255, 159, 64)",
-            "processed_ini",
-            "cutting_time",
-        ),
-        "ini_draw_time" => (
-            "Draw Time",
-            "rgb(75, 192, 192)",
-            "processed_ini",
-            "draw_time",
-        ),
-        _ => {
-            return Err(status::Custom(
-                Status::BadRequest,
-                "unexpected table type".to_string(),
-            ));
-        }
-    };
-    let db_data = db_revision_history_for_files(&conn, info.2, info.3, r1, r2)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+}
+pub fn api_all_graph_json(
+    db: web::Data<Pool<SqliteConnectionManager>>,
+    file_type: web::Path<(String,)>,
+    query: web::Query<AllGraphRequest>,
+) -> impl Future<Item = HttpResponse, Error = actix_web::Error> {
+    web::block(move || {
+        let info = match file_type.0.as_str() {
+            "csb_memory" => (
+                "Memory",
+                "rgb(54, 162, 235)",
+                "processed_csb",
+                "memory_peak",
+            ),
+            "csb_play_time" => (
+                "Run Time",
+                "rgb(255, 205, 86)",
+                "processed_csb",
+                "player_total_time",
+            ),
+            "ini_memory" => (
+                "Memory",
+                "rgb(54, 162, 235)",
+                "processed_ini",
+                "memory_peak",
+            ),
+            "ini_cut_time" => (
+                "Cut Time",
+                "rgb(255, 159, 64)",
+                "processed_ini",
+                "cutting_time",
+            ),
+            "ini_draw_time" => (
+                "Draw Time",
+                "rgb(75, 192, 192)",
+                "processed_ini",
+                "draw_time",
+            ),
+            _ => {
+                return Ok("unexpected table type".to_string());
+            }
+        };
+        let conn = db.get().unwrap();
+        let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r1, query.r2)?;
 
-    let mut labels = std::collections::HashSet::new();
-    let datasets: Vec<_> = db_data
-        .into_iter()
-        .map(|(test_name, runs)| {
-            let first_value = runs[0].stat;
-            let data: Vec<_> = runs
-                .into_iter()
-                .map(|r| {
-                    labels.insert(r.revision);
-                    json!({"x": r.revision, "y": r.stat / first_value})
+        let mut labels = std::collections::HashSet::new();
+        let datasets: Vec<_> = db_data
+            .into_iter()
+            .map(|(test_name, runs)| {
+                let first_value = runs[0].stat;
+                let data: Vec<_> = runs
+                    .into_iter()
+                    .map(|r| {
+                        labels.insert(r.revision);
+                        json!({"x": r.revision, "y": r.stat / first_value})
+                    })
+                    .collect();
+                json!({
+                    "label": test_name,
+                    "backgroundColor": info.1,
+                    "borderColor": info.1,
+                    "fill": false,
+                    "data": data
                 })
-                .collect();
-            json!({
-                "label": test_name,
-                "backgroundColor": info.1,
-                "borderColor": info.1,
-                "fill": false,
-                "data": data
             })
-        })
-        .collect();
-    let mut labels = Vec::from_iter(labels.iter());
-    labels.sort();
-    Ok(content::Json(
-        json!({
+            .collect();
+        let mut labels = Vec::from_iter(labels.iter());
+        labels.sort();
+        Ok(json!({
             "labels": labels,
             "datasets": datasets
         })
-        .to_string(),
-    ))
+        .to_string())
+    })
+    .then(
+        |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
+            match res {
+                Ok(j) => Ok(HttpResponse::Ok().json(j)),
+                Err(_) => Ok(HttpResponse::InternalServerError().into()),
+            }
+        },
+    )
 }
 
 struct RevisionInfo {
@@ -222,7 +234,7 @@ fn db_revision_history_for_files(
     ))?;
     let results = stmt
         .query_map(&[&low_revision, &high_revision], |r| {
-            (r.get(0), r.get(1), r.get(2))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
         .filter_map(|r| r.ok());
     let mut result = HashMap::new();
