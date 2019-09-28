@@ -1,5 +1,5 @@
 use crate::LOWEST_REVISION;
-use actix_web::{error, web, HttpResponse};
+use actix_web::{error, http::StatusCode, web, HttpResponse};
 use futures::Future;
 use itertools::Itertools;
 use r2d2::Pool;
@@ -45,12 +45,14 @@ pub fn api_file_graph_json(
                     vec!["Memory", "Cut Time", "Draw Time"],
                 ),
                 _ => {
-                    return Ok("unexpected table type".to_string());
+                    return Err((StatusCode::BAD_REQUEST, "unexpected table type".to_string()));
                 }
             };
-        let conn = db.get().unwrap();
-        let revision_info =
-            db_revision_history_for_file(&conn, sql_table, &sql_columns, &query.id)?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let revision_info = db_revision_history_for_file(&conn, sql_table, &sql_columns, &query.id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let reference_stats = &revision_info[0].stats;
         let labels: Vec<_> = revision_info.iter().map(|r| r.revision).collect();
         let colors = vec![
@@ -82,14 +84,7 @@ pub fn api_file_graph_json(
             .collect();
         Ok(json!({"labels": labels, "datasets": datasets}).to_string())
     })
-    .then(
-        |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
-            match res {
-                Ok(j) => Ok(HttpResponse::Ok().body(j)),
-                Err(_) => Ok(HttpResponse::InternalServerError().into()),
-            }
-        },
-    )
+    .then(json_to_response)
 }
 
 struct RevisionInfos {
@@ -171,11 +166,14 @@ pub fn api_all_graph_json(
                 "draw_time",
             ),
             _ => {
-                return Ok("unexpected table type".to_string());
+                return Err((StatusCode::BAD_REQUEST, "unexpected table type".to_string()));
             }
         };
-        let conn = db.get().unwrap();
-        let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r1, query.r2)?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r1, query.r2)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         let mut labels = std::collections::HashSet::new();
         let datasets: Vec<_> = db_data
@@ -206,14 +204,7 @@ pub fn api_all_graph_json(
         })
         .to_string())
     })
-    .then(
-        |res: std::result::Result<std::string::String, error::BlockingError<rusqlite::Error>>| {
-            match res {
-                Ok(j) => Ok(HttpResponse::Ok().body(j)),
-                Err(_) => Ok(HttpResponse::InternalServerError().into()),
-            }
-        },
-    )
+    .then(json_to_response)
 }
 
 struct RevisionInfo {
@@ -242,4 +233,18 @@ fn db_revision_history_for_files(
         t.push(RevisionInfo { revision, stat });
     }
     Ok(result)
+}
+
+fn json_to_response(
+    res: std::result::Result<std::string::String, error::BlockingError<(StatusCode, String)>>,
+) -> HttpResponse {
+    match res {
+        Ok(j) => HttpResponse::Ok().body(j),
+        Err(error::BlockingError::Error((status_code, message))) => {
+            HttpResponse::build(status_code)
+                .content_type("text/plain")
+                .body(message)
+        }
+        Err(_) => HttpResponse::InternalServerError().into(),
+    }
 }
