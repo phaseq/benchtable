@@ -68,6 +68,7 @@ markup::define! {
                         "Load Summary Charts"
                     }
                 }
+                h1 {"r" {{page.revision_low}} " vs r" {{page.revision_high}}}
                 {CsbTable { page }}
                 {IniTable { page }}
             }
@@ -103,7 +104,7 @@ markup::define! {
     }
 
     CsbTable<'a>(page: &'a Page) {
-        h1 { "CSB Benchmarks" }
+        h2 { "CSB Benchmarks" }
         table.benchtable {
             tbody {
                 @for test in page.csb_tests.iter() {
@@ -144,12 +145,12 @@ markup::define! {
             td { {format_mem(test.memory1)} }
         }
         tr[style = "display:none"] {
-            td[colspan = 3, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
+            td[colspan = 3, class="chart", "data-chart-id" = &test.name] {}
         }
     }
 
     IniTable<'a>(page: &'a Page) {
-        h1 { "CSB Benchmarks" }
+        h2 { "CSB Benchmarks" }
         table.benchtable {
             tbody {
                 @for test in page.ini_tests.iter() {
@@ -197,7 +198,7 @@ markup::define! {
             td { {format_mem(test.memory1)} }
         }
         tr[style = "display:none"] {
-            td[colspan = 4, class="chart", "data-chart-id" = &test.name] { "&nbsp;" }
+            td[colspan = 4, class="chart", "data-chart-id" = &test.name] {}
         }
     }
 }
