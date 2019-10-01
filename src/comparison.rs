@@ -194,7 +194,7 @@ markup::define! {
         tr[style = "display:none"] {
             th[style = "text-align:right"] { "r" {page.revision_high} }
             td { {format_time(test.cut_time1)} }
-            td { {format_time(test.draw_time0)} }
+            td { {format_time(test.draw_time1)} }
             td { {format_mem(test.memory1)} }
         }
         tr[style = "display:none"] {
