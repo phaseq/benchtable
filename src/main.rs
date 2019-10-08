@@ -62,7 +62,7 @@ fn main() {
 
     ServiceBuilder::new()
         .resource(TowerWeb::new(pool))
-        .middleware(DeflateMiddleware::new(Compression::best()))
+        .middleware(DeflateMiddleware::new(Compression::fast()))
         .run(&addr)
         .unwrap();
 }
