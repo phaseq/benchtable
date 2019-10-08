@@ -1,7 +1,7 @@
-use crate::{SqliteDb, LOWEST_REVISION};
+use crate::LOWEST_REVISION;
 use itertools::Itertools;
-use rocket::http::{RawStr, Status};
-use rocket::response::{content, status};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 use serde_json::json;
 use std::collections::HashMap;
@@ -19,12 +19,15 @@ purple: "rgb(153, 102, 255)",
 grey: "rgb(201, 203, 207)"
 */
 
-#[get("/file/<file_type>?<id>")]
+#[derive(Extract)]
+pub struct FileGraphQuery {
+    id: String,
+}
 pub fn api_file_graph_json(
-    conn: SqliteDb,
-    file_type: &RawStr,
-    id: &RawStr,
-) -> Result<content::Json<String>, status::Custom<String>> {
+    db: &Pool<SqliteConnectionManager>,
+    file_type: String,
+    query: FileGraphQuery,
+) -> Result<String, tower_web::Error> {
     let (sql_table, sql_columns, column_titles): (&str, Vec<&str>, Vec<&str>) =
         match file_type.as_str() {
             "csb" => (
@@ -38,23 +41,23 @@ pub fn api_file_graph_json(
                 vec!["Memory", "Cut Time", "Draw Time"],
             ),
             _ => {
-                return Err(status::Custom(
-                    Status::BadRequest,
-                    "unexpected table type".to_string(),
+                return Err(tower_web::Error::new(
+                    "Bad Request",
+                    "unexpected file type",
+                    http::StatusCode::BAD_REQUEST,
                 ));
             }
         };
-    let id = match id.url_decode() {
-        Ok(id) => id,
-        _ => {
-            return Err(status::Custom(
-                Status::BadRequest,
-                "couldn't decode id".to_string(),
-            ))
-        }
-    };
-    let revision_info = db_revision_history_for_file(&conn, sql_table, &sql_columns, &id)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+
+    let conn = db.get().unwrap();
+    let revision_info = db_revision_history_for_file(&conn, sql_table, &sql_columns, &query.id)
+        .map_err(|e| {
+            tower_web::Error::new(
+                "SQL Error",
+                &e.to_string(),
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
     let reference_stats = &revision_info[0].stats;
     let labels: Vec<_> = revision_info.iter().map(|r| r.revision).collect();
     let colors = vec![
@@ -84,9 +87,8 @@ pub fn api_file_graph_json(
             })
         })
         .collect();
-    Ok(content::Json(
-        json!({"labels": labels, "datasets": datasets}).to_string(),
-    ))
+
+    Ok(json!({"labels": labels, "datasets": datasets}).to_string())
 }
 
 struct RevisionInfos {
@@ -115,23 +117,26 @@ fn db_revision_history_for_file(
     let results = stmt.query_map(&[&config_file], |r| {
         let mut stats = Vec::new();
         for i in 0..columns.len() {
-            stats.push(r.get(i + 1));
+            stats.push(r.get(i + 1)?);
         }
-        RevisionInfos {
-            revision: r.get(0),
+        Ok(RevisionInfos {
+            revision: r.get(0)?,
             stats,
-        }
+        })
     })?;
     Ok(results.filter_map(|r| r.ok()).collect())
 }
 
-#[get("/all/<file_type>?<r1>&<r2>")]
-pub fn api_all_graph_json(
-    conn: SqliteDb,
-    file_type: &RawStr,
+#[derive(Extract)]
+pub struct AllGraphQuery {
     r1: u32,
     r2: u32,
-) -> Result<content::Json<String>, status::Custom<String>> {
+}
+pub fn api_all_graph_json(
+    db: &Pool<SqliteConnectionManager>,
+    file_type: String,
+    query: AllGraphQuery,
+) -> Result<String, tower_web::Error> {
     let info = match file_type.as_str() {
         "csb_memory" => (
             "Memory",
@@ -164,14 +169,22 @@ pub fn api_all_graph_json(
             "draw_time",
         ),
         _ => {
-            return Err(status::Custom(
-                Status::BadRequest,
-                "unexpected table type".to_string(),
+            return Err(tower_web::Error::new(
+                "Bad Request",
+                "unexpected graph type",
+                http::StatusCode::BAD_REQUEST,
             ));
         }
     };
-    let db_data = db_revision_history_for_files(&conn, info.2, info.3, r1, r2)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+    let conn = db.get().unwrap();
+    let db_data = db_revision_history_for_files(&conn, info.2, info.3, query.r1, query.r2)
+        .map_err(|e| {
+            tower_web::Error::new(
+                "SQL Error",
+                &e.to_string(),
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
 
     let mut labels = std::collections::HashSet::new();
     let datasets: Vec<_> = db_data
@@ -196,13 +209,11 @@ pub fn api_all_graph_json(
         .collect();
     let mut labels = Vec::from_iter(labels.iter());
     labels.sort();
-    Ok(content::Json(
-        json!({
-            "labels": labels,
-            "datasets": datasets
-        })
-        .to_string(),
-    ))
+    Ok(json!({
+        "labels": labels,
+        "datasets": datasets
+    })
+    .to_string())
 }
 
 struct RevisionInfo {
@@ -222,7 +233,7 @@ fn db_revision_history_for_files(
     ))?;
     let results = stmt
         .query_map(&[&low_revision, &high_revision], |r| {
-            (r.get(0), r.get(1), r.get(2))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
         .filter_map(|r| r.ok());
     let mut result = HashMap::new();

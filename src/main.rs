@@ -1,67 +1,68 @@
-#![feature(proc_macro_hygiene)]
-
 #[macro_use]
-extern crate rocket;
-#[macro_use]
-extern crate rocket_contrib;
+extern crate tower_web;
 
-use rocket::response::NamedFile;
-use rocket::response::{self, Responder};
-use rocket::Request;
+use flate2::Compression;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use std::{io, path::PathBuf};
+use tokio::{fs::File, prelude::Future};
+use tower_web::middleware::deflate::DeflateMiddleware;
+use tower_web::ServiceBuilder;
 
 mod comparison;
 mod graphs;
 
 pub static LOWEST_REVISION: u32 = 800_000;
 
-#[database("sqlite_db")]
-pub struct SqliteDb(rusqlite::Connection);
+#[derive(Clone, Debug)]
+pub struct TowerWeb {
+    db_pool: Pool<SqliteConnectionManager>,
+}
+
+impl_web! {
+    impl TowerWeb {
+        pub fn new(db_pool: Pool<SqliteConnectionManager>) -> Self {
+            Self { db_pool }
+        }
+
+        #[get("/")]
+        #[content_type("text/html")]
+        fn index(&self, query_string: comparison::IndexQuery) -> Result<String, tower_web::Error> {
+            comparison::index(&self.db_pool, query_string)
+        }
+
+        #[get("/api/file/:file_type")]
+        #[content_type("text/json")]
+        fn api_file(&self, file_type: String, query_string: graphs::FileGraphQuery) -> Result<String, tower_web::Error> {
+            graphs::api_file_graph_json(&self.db_pool, file_type, query_string)
+        }
+
+        #[get("/api/all/:file_type")]
+        #[content_type("text/json")]
+        fn api_all(&self, file_type: String, query_string: graphs::AllGraphQuery) -> Result<String, tower_web::Error> {
+            graphs::api_all_graph_json(&self.db_pool, file_type, query_string)
+        }
+
+        #[get("/static/*rel_path")]
+        fn static_files(&self, rel_path: PathBuf) -> impl Future<Item = File, Error = io::Error> {
+            let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            path.push("static");
+            path.push(rel_path);
+            File::open(path)
+        }
+    }
+}
 
 fn main() {
-    rocket::ignite()
-        .attach(SqliteDb::fairing())
-        //.attach(Compression::fairing())
-        .attach(rocket::fairing::AdHoc::on_attach(
-            "Static Files",
-            |rocket| {
-                let static_file_dir = rocket
-                    .config()
-                    .get_str("static_file_dir")
-                    .unwrap()
-                    .to_string();
-                Ok(rocket.manage(StaticFileDir(static_file_dir)))
-            },
-        ))
-        .mount("/", routes![comparison::index])
-        .mount(
-            "/api",
-            routes![graphs::api_file_graph_json, graphs::api_all_graph_json],
-        )
-        .mount("/static", routes![static_file])
-        .launch()
-        .expect("launch error!")
-}
+    let addr = "127.0.0.1:8000".parse().expect("Invalid IP");
+    println!("Listening on http://{}", addr);
 
-struct StaticFileDir(String);
+    let manager = r2d2_sqlite::SqliteConnectionManager::file("cutsim-testreport.db");
+    let pool = r2d2::Pool::new(manager).unwrap();
 
-#[get("/<path..>")]
-fn static_file(
-    path: std::path::PathBuf,
-    static_file_dir: rocket::State<StaticFileDir>,
-) -> Option<CachedFile> {
-    NamedFile::open(std::path::Path::new(&static_file_dir.0).join(path))
-        .ok()
-        .map(CachedFile)
-}
-
-struct CachedFile(NamedFile);
-
-impl<'r> Responder<'r> for CachedFile {
-    fn respond_to(self, req: &'r Request<'_>) -> response::ResultFuture<'r> {
-        Box::pin(async move {
-            let mut response = self.0.respond_to(req).await?;
-            response.set_raw_header("Cache-control", "max-age=86400");
-            Ok(response)
-        })
-    }
+    ServiceBuilder::new()
+        .resource(TowerWeb::new(pool))
+        .middleware(DeflateMiddleware::new(Compression::best()))
+        .run(&addr)
+        .unwrap();
 }

@@ -1,26 +1,39 @@
-use crate::{SqliteDb, LOWEST_REVISION};
-use rocket::http::{ContentType, RawStr, Status};
-use rocket::response::{content::Content, status};
+use crate::LOWEST_REVISION;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Connection, NO_PARAMS};
 
-#[get("/?<r1>&<r2>&<sort>")]
-pub fn index(
-    conn: SqliteDb,
+#[derive(Extract)]
+pub struct IndexQuery {
     r1: Option<u32>,
     r2: Option<u32>,
-    sort: Option<&RawStr>,
-) -> Result<Content<String>, status::Custom<String>> {
-    let revisions = db_all_revisions(&conn, "processed_csb")
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+    sort: Option<String>,
+}
+pub fn index(
+    db: &Pool<SqliteConnectionManager>,
+    args: IndexQuery,
+) -> Result<String, tower_web::Error> {
+    let conn = db.get().unwrap();
+    let revisions = db_all_revisions(&conn, "processed_csb").map_err(|e| {
+        tower_web::Error::new(
+            "SQL Error",
+            &e.to_string(),
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
 
-    let revision_low = r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
-    let revision_high = r2.unwrap_or_else(|| *revisions.last().unwrap());
-    let sort = sort
-        .and_then(|s| s.url_decode().ok())
-        .unwrap_or_else(|| "cut time".to_string());
+    let revision_low = args.r1.unwrap_or_else(|| revisions[revisions.len() - 5]);
+    let revision_high = args.r2.unwrap_or_else(|| *revisions.last().unwrap());
+    let sort = args.sort.unwrap_or_else(|| "cut time".to_string());
 
     let (csb_tests, ini_tests) = db_revision_comparison(&conn, revision_low, revision_high, &sort)
-        .map_err(|e| status::Custom(Status::InternalServerError, e.to_string()))?;
+        .map_err(|e| {
+            tower_web::Error::new(
+                "SQL Error",
+                &e.to_string(),
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
 
     let html = format!(
         "{}",
@@ -35,7 +48,7 @@ pub fn index(
             }
         }
     );
-    Ok(Content(ContentType::HTML, html))
+    Ok(html)
 }
 
 pub struct Page {
@@ -296,15 +309,15 @@ fn db_revision_comparison_csb(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0);
+            let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            CsbTest {
+            Ok(CsbTest {
                 name: name.to_string(),
-                time0: row.get(1),
-                time1: row.get(2),
-                memory0: row.get(3),
-                memory1: row.get(4),
-            }
+                time0: row.get(1)?,
+                time1: row.get(2)?,
+                memory0: row.get(3)?,
+                memory1: row.get(4)?,
+            })
         })?
         .filter_map(|r| r.ok())
         .collect())
@@ -340,17 +353,17 @@ fn db_revision_comparison_ini(
     Ok(conn
         .prepare_cached(&query)?
         .query_map(&[&revision1, &revision2], |row| {
-            let name: String = row.get(0);
+            let name: String = row.get(0)?;
             let name = name.split("\\testcases\\").last().unwrap_or(&name);
-            IniTest {
+            Ok(IniTest {
                 name: name.to_string(),
-                cut_time0: row.get(1),
-                cut_time1: row.get(2),
-                draw_time0: row.get(3),
-                draw_time1: row.get(4),
-                memory0: row.get(5),
-                memory1: row.get(6),
-            }
+                cut_time0: row.get(1)?,
+                cut_time1: row.get(2)?,
+                draw_time0: row.get(3)?,
+                draw_time1: row.get(4)?,
+                memory0: row.get(5)?,
+                memory1: row.get(6)?,
+            })
         })?
         .filter_map(|r| r.ok())
         .collect())
