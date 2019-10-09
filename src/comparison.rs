@@ -35,20 +35,17 @@ pub fn index(
             )
         })?;
 
-    let html = format!(
-        "{}",
-        Index {
-            page: &Page {
-                revisions,
-                revision_low,
-                revision_high,
-                sort,
-                csb_tests,
-                ini_tests,
-            }
-        }
-    );
-    Ok(html)
+    Ok(Index {
+        page: &Page {
+            revisions,
+            revision_low,
+            revision_high,
+            sort,
+            csb_tests,
+            ini_tests,
+        },
+    }
+    .to_string())
 }
 
 pub struct Page {

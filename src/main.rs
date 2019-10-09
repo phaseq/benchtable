@@ -53,11 +53,26 @@ impl_web! {
     }
 }
 
+#[derive(Deserialize)]
+struct Config {
+    sqlite_db: String,
+}
+
+fn load_config() -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("config.toml");
+    let config: String = std::fs::read_to_string(path).unwrap();
+    let config: Config = toml::from_str(&config).unwrap();
+    PathBuf::from(config.sqlite_db)
+}
+
 fn main() {
+    let db_path = load_config();
+
     let addr = "127.0.0.1:8000".parse().expect("Invalid IP");
     println!("Listening on http://{}", addr);
 
-    let manager = r2d2_sqlite::SqliteConnectionManager::file("cutsim-testreport.db");
+    let manager = r2d2_sqlite::SqliteConnectionManager::file(db_path);
     let pool = r2d2::Pool::new(manager).unwrap();
 
     ServiceBuilder::new()
